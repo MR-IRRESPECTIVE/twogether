@@ -13,7 +13,7 @@ import { MAX_PHOTOS_PER_SESSION } from '@shared/constants.js';
 import layouts from '../data/layouts.json';
 
 export default function BoothPage() {
-  const { isHost, participants, roomCode } = useRoom();
+  const { isHost, participants, roomCode, myId } = useRoom();
   const { photos, startCountdown, endBooth, sessionId, layoutId } = useSession();
   
   const layout = layouts.find(l => l.id === layoutId) || layouts[0];
@@ -121,6 +121,7 @@ export default function BoothPage() {
         <CameraGrid 
           localStream={localStream} 
           remoteStreams={remoteStreams} 
+          myId={myId}
           myFilterCss={filterCss}
           participants={participants || []}
           targetSlotAspect={targetSlotAspect}

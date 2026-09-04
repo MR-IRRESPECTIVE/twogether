@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useRoom } from '../context/RoomContext';
 import { Button } from '../components/ui/Button';
 import { Modal } from '../components/ui/Modal';
@@ -7,10 +7,22 @@ import { PARTICIPANT_COLORS } from '@shared/constants.js';
 
 const HomePage = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { createRoom, joinRoom } = useRoom();
 
   const [hostModalOpen, setHostModalOpen] = useState(false);
   const [joinModalOpen, setJoinModalOpen] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const joinCode = params.get('join');
+    if (joinCode) {
+      setRoomCode(joinCode.toUpperCase());
+      setJoinModalOpen(true);
+      // Clean up the URL so refresh doesn't keep opening it if they cancel
+      window.history.replaceState({}, document.title, '/');
+    }
+  }, [location]);
 
   const [name, setName] = useState('');
   const [color, setColor] = useState(PARTICIPANT_COLORS[0]);

@@ -5,6 +5,9 @@ export default function CameraTile({ stream, name, filterCss, targetAspect = 160
 
   useEffect(() => {
     if (videoRef.current) {
+      // Explicitly set these DOM properties for iOS Safari WebKit compatibility
+      videoRef.current.muted = true;
+      videoRef.current.playsInline = true;
       videoRef.current.srcObject = stream || null;
       if (stream) {
         videoRef.current.play().catch(err => {

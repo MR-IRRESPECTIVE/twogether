@@ -1,9 +1,7 @@
 import React from "react";
 import CameraTile from "./CameraTile";
-import { socket } from "../../lib/socket";
 
-export default function CameraGrid({ localStream, remoteStreams, participants, myFilterCss, targetSlotAspect = 1.333 }) {
-  const myId = socket.id;
+export default function CameraGrid({ localStream, remoteStreams, participants, myId, myFilterCss, targetSlotAspect = 1.333 }) {
   
   const allTiles = (participants && participants.length > 0)
     ? participants.map(p => {

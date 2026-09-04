@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { useRoom } from '../context/RoomContext';
 import { useSession } from '../context/SessionContext';
 import { useMedia } from '../context/MediaContext';
@@ -9,16 +9,21 @@ import { Button } from '../components/ui/Button';
 
 const LobbyPage = () => {
   const navigate = useNavigate();
+  const { roomCode: urlRoomCode } = useParams();
   const { roomCode, participants, isHost, myId, leaveRoom, connectionStatus } = useRoom();
   const { startSession } = useSession();
   const { stream, error, isReady, retry } = useMedia();
 
-  // If no roomCode, redirect home (handled somewhat by routing, but safety net)
+  // If no roomCode in context, redirect home (with join param if they navigated to a deep link)
   useEffect(() => {
     if (!roomCode) {
-      navigate('/');
+      if (urlRoomCode) {
+        navigate(`/?join=${urlRoomCode}`);
+      } else {
+        navigate('/');
+      }
     }
-  }, [roomCode, navigate]);
+  }, [roomCode, urlRoomCode, navigate]);
 
   // Sync camera status with server
   useEffect(() => {
