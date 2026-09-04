@@ -9,7 +9,6 @@ import { registerSignalingHandlers } from './signaling.js';
 import { registerPhotoRelayHandlers } from './photoRelay.js';
 import { startCleanupTimers } from './cleanup.js';
 import { RECONNECT_GRACE_MS, STAGES } from '../../shared/constants.js';
-import { initDb } from './db.js';
 import { initStorage } from './storage.js';
 
 const app = express();
@@ -269,18 +268,10 @@ io.on('connection', (socket) => {
         if (matches && matches.length === 3) {
           const buffer = Buffer.from(matches[2], 'base64');
           const { uploadStrip, getSignedUrl } = await import('./storage.js');
-          const { query } = await import('./db.js');
           
           storageKey = await uploadStrip(room.code, stripId, buffer);
           if (storageKey) {
             stripUrl = await getSignedUrl(storageKey, 21600);
-            
-            // Save metadata to postgres asynchronously
-            query(`
-              INSERT INTO strips (id, session_id, owner_id, owner_name, storage_key, expires_at)
-              VALUES ($1, $2, $3, $4, $5, NOW() + INTERVAL '${process.env.ROOM_TTL_MINUTES || 360} minutes')
-              ON CONFLICT (id) DO NOTHING
-            `, [stripId, sessionId, socket.id, ownerName, storageKey]).catch(e => console.error(e));
           }
         }
       }
@@ -388,7 +379,6 @@ io.on('connection', (socket) => {
 const PORT = process.env.PORT || 3001;
 
 async function startServer() {
-  await initDb();
   initStorage();
 
   server.listen(PORT, '0.0.0.0', () => {

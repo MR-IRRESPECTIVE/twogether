@@ -3,14 +3,13 @@
 This repository is configured for a split deployment:
 - **Frontend**: Vercel (static site)
 - **Backend**: Render (Node.js Web Service)
-- **Database**: PostgreSQL (for metadata only)
+- **Database**: None (in-memory only)
 - **Storage**: Cloudflare R2 / AWS S3 (for temporary images)
 
 ## Architecture
 
-Twogether is an ephemeral photobooth. All photos and strips are stored temporarily in S3 and all metadata is stored temporarily in PostgreSQL. When a room expires (after 6 hours of inactivity), all related database rows and S3 objects are automatically deleted.
+Twogether is an ephemeral photobooth. All photos and strips are stored temporarily in S3 and all metadata is stored temporarily in-memory on the Node.js server. When a room expires (after 6 hours of inactivity), all related S3 objects are automatically deleted and memory is freed.
 
-**No image binary data is ever stored in PostgreSQL.**
 **No permanent user accounts or photo galleries are retained.**
 
 ---
@@ -39,11 +38,9 @@ Twogether is an ephemeral photobooth. All photos and strips are stored temporari
    - **Root Directory**: `server`
    - **Build Command**: `npm install`
    - **Start Command**: `npm start`
-3. Create a **PostgreSQL Database** on Render.
 4. Environment Variables:
    - `PORT`: `3001` (or let Render set it)
    - `FRONTEND_ORIGIN`: Your Vercel domain (e.g., `https://twogether.vercel.app`). You can use a comma-separated list for multiple domains.
-   - `DATABASE_URL`: Your Render PostgreSQL Internal Connection String.
    - `OBJECT_STORAGE_ENDPOINT`: e.g., `https://<account-id>.r2.cloudflarestorage.com`
    - `OBJECT_STORAGE_BUCKET`: The name of your R2 bucket
    - `OBJECT_STORAGE_ACCESS_KEY`: Your R2 access key
@@ -77,4 +74,4 @@ npm run dev:server
 npm run dev:client
 ```
 
-To test storage locally, create a `.env` in the `server` directory using `server/.env.example` as a template. If `DATABASE_URL` is omitted, the server will start but photo uploading will fail.
+To test storage locally, create a `.env` in the `server` directory using `server/.env.example` as a template.

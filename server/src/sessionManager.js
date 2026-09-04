@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { MAX_PHOTOS_PER_SESSION, STAGES } from '../../shared/constants.js';
-import { query } from './db.js';
+
 
 export class SessionManager {
   constructor() {
@@ -23,13 +23,6 @@ export class SessionManager {
       lastActivityAt: now
     };
     this.sessions.set(session.id, session);
-    
-    // Async DB save
-    query(`
-      INSERT INTO sessions (id, room_code, stage)
-      VALUES ($1, $2, $3)
-      ON CONFLICT (id) DO NOTHING
-    `, [session.id, roomCode, session.stage]).catch(e => console.error(e));
     
     return session;
   }

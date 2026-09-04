@@ -1,5 +1,5 @@
 import { uploadPhoto, getSignedUrl } from './storage.js';
-import { query } from './db.js';
+
 
 export function registerPhotoRelayHandlers(io, socket, sessionManager, roomManager) {
   socket.on('photo:upload', async ({ sessionId, photoData, metadata }) => {
@@ -19,13 +19,6 @@ export function registerPhotoRelayHandlers(io, socket, sessionManager, roomManag
           storageKey = await uploadPhoto(session.roomCode, metadata.id, buffer);
           if (storageKey) {
             photoUrl = await getSignedUrl(storageKey, 21600);
-            
-            // Save metadata to postgres asynchronously
-            query(`
-              INSERT INTO photos (id, session_id, storage_key, captured_by, expires_at)
-              VALUES ($1, $2, $3, $4, NOW() + INTERVAL '${process.env.IMAGE_TTL_MINUTES || 120} minutes')
-              ON CONFLICT (id) DO NOTHING
-            `, [metadata.id, sessionId, storageKey, metadata.capturedBy]).catch(e => console.error(e));
           }
         }
       }

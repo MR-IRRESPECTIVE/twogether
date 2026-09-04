@@ -1,5 +1,5 @@
 import { generateRoomCode } from './utils/roomCode.js';
-import { query } from './db.js';
+
 
 export class RoomManager {
   constructor() {
@@ -36,13 +36,6 @@ export class RoomManager {
     };
 
     this.rooms.set(code, room);
-
-    // Save to DB asynchronously
-    query(`
-      INSERT INTO rooms (code, host_id, expected_count, expires_at)
-      VALUES ($1, $2, $3, NOW() + INTERVAL '${process.env.ROOM_TTL_MINUTES || 360} minutes')
-      ON CONFLICT (code) DO NOTHING
-    `, [code, socketId, expectedCount]).catch(e => console.error(e));
 
     return room;
   }
