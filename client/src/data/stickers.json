@@ -1,0 +1,8 @@
+[
+  { "id": "heart", "name": "Heart", "emoji": "??" },
+  { "id": "star", "name": "Star", "emoji": "?" },
+  { "id": "smile", "name": "Smile", "emoji": "??" },
+  { "id": "fire", "name": "Fire", "emoji": "??" },
+  { "id": "sparkles", "name": "Sparkles", "emoji": "?" },
+  { "id": "party", "name": "Party", "emoji": "??" }
+]

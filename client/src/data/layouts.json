@@ -1,0 +1,26 @@
+[
+  {
+    "id": "layout-1x4",
+    "name": "Portrait 1x4",
+    "width": 600,
+    "height": 1800,
+    "photoSlots": [
+      { "id": "slot1", "x": 50, "y": 50, "width": 500, "height": 350 },
+      { "id": "slot2", "x": 50, "y": 450, "width": 500, "height": 350 },
+      { "id": "slot3", "x": 50, "y": 850, "width": 500, "height": 350 },
+      { "id": "slot4", "x": 50, "y": 1250, "width": 500, "height": 350 }
+    ]
+  },
+  {
+    "id": "layout-2x2",
+    "name": "Landscape 2x2",
+    "width": 1200,
+    "height": 1200,
+    "photoSlots": [
+      { "id": "slot1", "x": 50, "y": 50, "width": 500, "height": 500 },
+      { "id": "slot2", "x": 650, "y": 50, "width": 500, "height": 500 },
+      { "id": "slot3", "x": 50, "y": 650, "width": 500, "height": 500 },
+      { "id": "slot4", "x": 650, "y": 650, "width": 500, "height": 500 }
+    ]
+  }
+]

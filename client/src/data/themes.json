@@ -1,0 +1,26 @@
+[
+  {
+    "id": "minimal",
+    "name": "Minimal",
+    "background": "#FDF0E6",
+    "borderColor": "#1A1A2E",
+    "textColor": "#1A1A2E",
+    "fontFamily": "sans-serif"
+  },
+  {
+    "id": "denim",
+    "name": "Denim",
+    "background": "#7B9EC4",
+    "borderColor": "#FDF0E6",
+    "textColor": "#FDF0E6",
+    "fontFamily": "monospace"
+  },
+  {
+    "id": "love-letter",
+    "name": "Love Letter",
+    "background": "#F2665E",
+    "borderColor": "#FDF0E6",
+    "textColor": "#FDF0E6",
+    "fontFamily": "serif"
+  }
+]
