@@ -18,7 +18,7 @@ export function registerPhotoRelayHandlers(io, socket, sessionManager, roomManag
           const buffer = Buffer.from(matches[2], 'base64');
           storageKey = await uploadPhoto(session.roomCode, metadata.id, buffer);
           if (storageKey) {
-            photoUrl = await getSignedUrl(storageKey, 3600);
+            photoUrl = await getSignedUrl(storageKey, 21600);
             
             // Save metadata to postgres asynchronously
             query(`
@@ -30,7 +30,7 @@ export function registerPhotoRelayHandlers(io, socket, sessionManager, roomManag
         }
       }
 
-      const photoEntry = sessionManager.addPhoto(sessionId, photoUrl, metadata);
+      const photoEntry = sessionManager.addPhoto(sessionId, photoUrl, metadata, storageKey);
       if (photoEntry) {
         io.to(session.roomCode).emit('photo:new', {
           photoId: metadata.id,
@@ -45,13 +45,22 @@ export function registerPhotoRelayHandlers(io, socket, sessionManager, roomManag
     }
   });
 
-  socket.on('photo:request-all', ({ sessionId }) => {
+  socket.on('photo:request-all', async ({ sessionId }) => {
     try {
       const session = sessionManager.getSession(sessionId);
       if (!session) return;
       
       const photos = sessionManager.getPhotos(sessionId);
-      socket.emit('photo:all', { photos });
+      
+      const freshPhotos = await Promise.all(photos.map(async p => {
+        if (p.storageKey) {
+          const freshUrl = await getSignedUrl(p.storageKey, 21600);
+          return { ...p, data: freshUrl };
+        }
+        return p;
+      }));
+      
+      socket.emit('photo:all', { photos: freshPhotos });
     } catch (err) {
       socket.emit('error', { message: err.message });
     }

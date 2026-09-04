@@ -75,7 +75,7 @@ export class SessionManager {
     }
   }
 
-  addPhoto(sessionId, photoUrl, metadata) {
+  addPhoto(sessionId, photoUrl, metadata, storageKey) {
     const session = this.sessions.get(sessionId);
     if (!session) return null;
 
@@ -84,7 +84,7 @@ export class SessionManager {
     }
 
     this.touch(sessionId);
-    const photoEntry = { data: photoUrl, metadata };
+    const photoEntry = { data: photoUrl, metadata, storageKey };
     session.photoBuffer.set(metadata.id, photoEntry);
     session.photoCount++;
     return photoEntry;
@@ -113,7 +113,7 @@ export class SessionManager {
     }
   }
 
-  publishStrip(sessionId, socketId, ownerName, stripUrl, stripId) {
+  publishStrip(sessionId, socketId, ownerName, stripUrl, stripId, storageKey) {
     const session = this.sessions.get(sessionId);
     if (session) {
       this.touch(sessionId);
@@ -121,7 +121,8 @@ export class SessionManager {
         id: stripId || `strip-${socketId}-${Date.now()}`,
         ownerId: socketId,
         ownerName,
-        imageData: stripUrl,
+        imageData: stripUrl, // initial url
+        storageKey, // raw key to generate fresh urls
         createdAt: Date.now()
       };
       session.publishedStrips.set(strip.id, strip);

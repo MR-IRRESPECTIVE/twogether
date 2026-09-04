@@ -273,7 +273,7 @@ io.on('connection', (socket) => {
           
           storageKey = await uploadStrip(room.code, stripId, buffer);
           if (storageKey) {
-            stripUrl = await getSignedUrl(storageKey, 3600);
+            stripUrl = await getSignedUrl(storageKey, 21600);
             
             // Save metadata to postgres asynchronously
             query(`
@@ -285,7 +285,7 @@ io.on('connection', (socket) => {
         }
       }
 
-      const strip = sessionManager.publishStrip(sessionId, socket.id, ownerName, stripUrl, stripId);
+      const strip = sessionManager.publishStrip(sessionId, socket.id, ownerName, stripUrl, stripId, storageKey);
       
       if (strip) {
         io.to(room.code).emit('reveal:new-strip', { strip });
@@ -300,18 +300,28 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('reveal:request-strips', ({ sessionId }, callback) => {
+  socket.on('reveal:request-strips', async ({ sessionId }, callback) => {
     try {
       const strips = sessionManager.getPublishedStrips(sessionId);
+      const { getSignedUrl } = await import('./storage.js');
+      
+      const freshStrips = await Promise.all(strips.map(async strip => {
+        if (strip.storageKey) {
+          const freshUrl = await getSignedUrl(strip.storageKey, 21600);
+          return { ...strip, imageData: freshUrl };
+        }
+        return strip;
+      }));
+      
       if (typeof callback === 'function') {
-        callback({ strips });
+        callback({ strips: freshStrips });
       }
     } catch (err) {
       if (typeof callback === 'function') callback({ error: err.message });
     }
   });
 
-  socket.on('session:make-another', ({ roomCode, sessionId }) => {
+  socket.on('session:make-another', async ({ roomCode, sessionId }) => {
     try {
       const room = roomManager.getRoom(roomCode);
       if (!room || room.hostId !== socket.id) {
@@ -330,6 +340,15 @@ io.on('connection', (socket) => {
       newSession.layoutId = oldLayoutId;
       room.currentSessionId = newSession.id;
       
+      const { getSignedUrl } = await import('./storage.js');
+      const freshStrips = await Promise.all(Array.from(newSession.publishedStrips.values()).map(async strip => {
+        if (strip.storageKey) {
+          const freshUrl = await getSignedUrl(strip.storageKey, 21600);
+          return { ...strip, imageData: freshUrl };
+        }
+        return strip;
+      }));
+
       io.to(roomCode).emit('session:stage-changed', { 
         stage: STAGES.FORMAT_SELECT, 
         session: newSession,
@@ -337,7 +356,7 @@ io.on('connection', (socket) => {
         photos: [],
         mySelections: [],
         finalStripDataUrl: null,
-        publishedStrips: Array.from(newSession.publishedStrips.values())
+        publishedStrips: freshStrips
       });
     } catch (err) {
       socket.emit('error', { message: err.message });
