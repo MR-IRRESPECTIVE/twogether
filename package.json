@@ -1,6 +1,7 @@
 {
   "name": "twogether",
   "private": true,
+  "type": "module",
   "description": "Collaborative online photobooth — monorepo root",
   "scripts": {
     "dev:client": "cd client && npm run dev",
