@@ -176,7 +176,9 @@ export const RoomProvider = ({ children }) => {
   };
 
   const leaveRoom = () => {
-    socket.emit('room:leave');
+    if (roomCode) {
+      socket.emit('room:leave', { roomCode });
+    }
     setRoomCode(null);
     setParticipants([]);
     setHostId(null);
