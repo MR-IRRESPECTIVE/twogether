@@ -186,8 +186,22 @@ export class WebRTCManager {
       if (pc.connectionState === "connected") return;
     }
 
-    this.createPeerConnection(socketId);
+    const pc = this.createPeerConnection(socketId);
     
+    if (this.localStream) {
+      const senders = pc.getSenders();
+      this.localStream.getTracks().forEach(track => {
+        if (!senders.some(s => s.track && s.track.kind === track.kind)) {
+          try {
+            pc.addTrack(track, this.localStream);
+            this._logTrackAdd(socketId, track, pc);
+          } catch (e) {
+            console.warn("Error proactive track attach:", e);
+          }
+        }
+      });
+    }
+
     if (forceInitiator) {
       await this.initiateOffer(socketId);
     }

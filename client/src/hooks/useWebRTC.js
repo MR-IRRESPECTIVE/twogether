@@ -60,19 +60,19 @@ export function useWebRTC(localStream) {
     };
   }, [myId]);
 
-  // Update local stream tracks when localStream changes
+  // Update local stream tracks when localStream changes or manager is recreated
   useEffect(() => {
     if (managerRef.current && localStream) {
       managerRef.current.updateLocalStream(localStream);
     }
-  }, [localStream]);
+  }, [localStream, myId]);
 
   // Update participants list without tearing down existing calls
   useEffect(() => {
     if (managerRef.current && participants && participants.length > 0) {
       managerRef.current.updateParticipants(participants);
     }
-  }, [participants]);
+  }, [participants, myId]);
 
   return { remoteStreams };
 }
