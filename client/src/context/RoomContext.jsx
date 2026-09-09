@@ -6,11 +6,23 @@ const RoomContext = createContext(null);
 export const useRoom = () => useContext(RoomContext);
 
 export const RoomProvider = ({ children }) => {
-  const [roomCode, setRoomCode] = useState(null);
+  const loadSavedState = () => {
+    try {
+      const saved = sessionStorage.getItem('twogether_reconnect');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && parsed.roomCode) return parsed;
+      }
+    } catch(e) {}
+    return null;
+  };
+
+  const saved = loadSavedState();
+  const [roomCode, setRoomCode] = useState(saved?.roomCode || null);
   const [participants, setParticipants] = useState([]);
-  const [myId, setMyId] = useState(null);
-  const [myName, setMyName] = useState(null);
-  const [myColor, setMyColor] = useState(null);
+  const [myId, setMyId] = useState(saved?.myId || null);
+  const [myName, setMyName] = useState(saved?.myName || null);
+  const [myColor, setMyColor] = useState(saved?.myColor || null);
   const [hostId, setHostId] = useState(null);
   const [connectionStatus, setConnectionStatus] = useState('connected');
   const [rejoinedSession, setRejoinedSession] = useState(null);
@@ -23,6 +35,12 @@ export const RoomProvider = ({ children }) => {
       if (roomCode && myName) {
         // Attempt rejoin
         socket.emit('room:join', { roomCode, name: myName, color: myColor, previousId: myId }, (response) => {
+          if (response.error) {
+            console.error('Failed to rejoin:', response.error);
+            sessionStorage.removeItem('twogether_reconnect');
+            window.location.href = '/?error=' + encodeURIComponent(response.error);
+            return;
+          }
           if (response.roomCode) {
             setParticipants(response.room.participants);
             setHostId(response.room.hostId);
@@ -30,6 +48,12 @@ export const RoomProvider = ({ children }) => {
             if (response.session) {
               setRejoinedSession(response.session);
             }
+            sessionStorage.setItem('twogether_reconnect', JSON.stringify({
+              roomCode: response.roomCode,
+              myId: socket.id,
+              myName,
+              myColor
+            }));
           }
         });
       }
@@ -117,6 +141,12 @@ export const RoomProvider = ({ children }) => {
       setMyId(socket.id);
       setMyName(name);
       setMyColor(color);
+      sessionStorage.setItem('twogether_reconnect', JSON.stringify({
+        roomCode: response.room.code,
+        myId: socket.id,
+        myName: name,
+        myColor: color
+      }));
       return response.room.code;
     }
     throw new Error('Unexpected response format');
@@ -134,6 +164,12 @@ export const RoomProvider = ({ children }) => {
       setMyId(socket.id);
       setMyName(name);
       setMyColor(color);
+      sessionStorage.setItem('twogether_reconnect', JSON.stringify({
+        roomCode: response.roomCode,
+        myId: socket.id,
+        myName: name,
+        myColor: color
+      }));
       return response.roomCode;
     }
     throw new Error('Unexpected response format');
@@ -147,6 +183,7 @@ export const RoomProvider = ({ children }) => {
     setMyId(null);
     setMyName(null);
     setMyColor(null);
+    sessionStorage.removeItem('twogether_reconnect');
   };
 
   return (

@@ -16,7 +16,12 @@ const HomePage = () => {
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const joinCode = params.get('join');
-    if (joinCode) {
+    const urlError = params.get('error');
+    if (urlError) {
+      setError(urlError);
+      setJoinModalOpen(true);
+      window.history.replaceState({}, document.title, '/');
+    } else if (joinCode) {
       setRoomCode(joinCode.toUpperCase());
       setJoinModalOpen(true);
       // Clean up the URL so refresh doesn't keep opening it if they cancel

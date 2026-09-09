@@ -70,12 +70,17 @@ export class RoomManager {
       return { room, isRejoin: true, oldId: previousId };
     }
     
+    // If they tried to reconnect but the previousId isn't in the room anymore
+    if (previousId) {
+      throw new Error('Your previous session has expired. Please ask the host for a new room.');
+    }
+    
     if (room.participants.size >= room.expectedCount) {
       throw new Error('Room is full');
     }
     
     if (room.currentSessionId) {
-      throw new Error('Cannot join room, game has already started');
+      throw new Error('Game already started. New participants cannot join this room.');
     }
 
     this.touch(roomCode);
