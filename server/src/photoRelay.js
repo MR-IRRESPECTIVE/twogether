@@ -3,10 +3,20 @@ import { uploadPhoto, getSignedUrl } from './storage.js';
 
 export function registerPhotoRelayHandlers(io, socket, sessionManager, roomManager) {
   socket.on('photo:upload', async ({ sessionId, photoData, metadata }) => {
-    // console.log(`[SERVER] Received photo:upload for session ${sessionId}, metadata ID: ${metadata.id}`);
+    console.log(`[SERVER] Received photo:upload for session: ${sessionId}, metadata ID: ${metadata?.id}`);
     try {
-      const session = sessionManager.getSession(sessionId);
-      if (!session) return;
+      let session = sessionId ? sessionManager.getSession(sessionId) : null;
+      if (!session) {
+        const room = roomManager.getRoomBySocketId(socket.id);
+        if (room && room.currentSessionId) {
+          sessionId = room.currentSessionId;
+          session = sessionManager.getSession(sessionId);
+        }
+      }
+      if (!session) {
+        console.warn(`[SERVER] Session not found for sessionId: ${sessionId}`);
+        return;
+      }
       
       let photoUrl = photoData;
       let storageKey = null;
@@ -18,16 +28,21 @@ export function registerPhotoRelayHandlers(io, socket, sessionManager, roomManag
           const buffer = Buffer.from(matches[2], 'base64');
           storageKey = await uploadPhoto(session.roomCode, metadata.id, buffer);
           if (storageKey) {
-            photoUrl = await getSignedUrl(storageKey, 21600);
+            const signed = await getSignedUrl(storageKey, 21600);
+            if (signed) {
+              photoUrl = signed;
+            } else {
+              storageKey = null;
+            }
           }
         }
       }
 
-      const photoEntry = sessionManager.addPhoto(sessionId, photoUrl, metadata, storageKey);
+      const photoEntry = sessionManager.addPhoto(sessionId, photoUrl, metadata, storageKey, storageKey ? null : photoData);
       if (photoEntry) {
         io.to(session.roomCode).emit('photo:new', {
           photoId: metadata.id,
-          photoData: photoEntry.data,
+          photoData: storageKey ? photoUrl : (photoData || photoEntry.data),
           metadata: photoEntry.metadata
         });
       } else {
@@ -49,6 +64,9 @@ export function registerPhotoRelayHandlers(io, socket, sessionManager, roomManag
         if (p.storageKey) {
           const freshUrl = await getSignedUrl(p.storageKey, 21600);
           return { ...p, data: freshUrl };
+        }
+        if (p.base64Data) {
+          return { ...p, data: p.base64Data };
         }
         return p;
       }));

@@ -1,6 +1,6 @@
 import React, { useRef, useEffect } from "react";
 
-export default function CameraTile({ stream, name, filterCss, targetAspect = 1600/1200 }) {
+export default function CameraTile({ stream, name, filterCss, targetAspect = 1600/1200, width, height, maxWidth = "100%" }) {
   const videoRef = useRef(null);
 
   useEffect(() => {
@@ -20,7 +20,9 @@ export default function CameraTile({ stream, name, filterCss, targetAspect = 160
   return (
     <div style={{
       position: "relative",
-      width: "100%",
+      width: width ? `${width}px` : "100%",
+      height: height ? `${height}px` : "auto",
+      maxWidth: maxWidth || "100%",
       maxHeight: "100%",
       backgroundColor: "#000",
       borderRadius: "var(--radius-md)",
@@ -31,6 +33,7 @@ export default function CameraTile({ stream, name, filterCss, targetAspect = 160
       alignItems: "center",
       justifyContent: "center",
       aspectRatio: targetAspect,
+      flexShrink: 0
     }}>
       <video
         ref={videoRef}

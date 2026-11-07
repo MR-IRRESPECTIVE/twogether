@@ -43,3 +43,7 @@ coverage/
 *.pem
 *.key
 *.cert
+
+# Local test verification scripts
+run_e2e_test.js
+test_security.js

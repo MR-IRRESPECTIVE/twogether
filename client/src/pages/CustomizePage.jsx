@@ -14,12 +14,25 @@ export default function CustomizePage() {
   const [theme, setTheme] = useState(themes[0]);
   const [stickers, setStickers] = useState([]);
   const [textElements, setTextElements] = useState([]);
+  const [isRendering, setIsRendering] = useState(false);
+  const [renderError, setRenderError] = useState(null);
 
   const selectedPhotos = (mySelections || []).map(id => photos.find(p => p.id === id)).filter(Boolean);
 
   const handleDone = async () => {
-    const dataUrl = await renderStrip(layout, theme, selectedPhotos, stickers, textElements);
-    finishCustomize(dataUrl);
+    if (isRendering) return;
+    setIsRendering(true);
+    setRenderError(null);
+    console.log('[CUSTOMIZE] FINISH clicked, starting renderStrip...');
+    try {
+      const dataUrl = await renderStrip(layout, theme, selectedPhotos, stickers, textElements);
+      console.log('[CUSTOMIZE] renderStrip finished, dataUrl length:', dataUrl?.length);
+      finishCustomize(dataUrl);
+    } catch (err) {
+      console.error('[CUSTOMIZE] renderStrip error:', err);
+      setRenderError(err.message || 'Failed to generate strip. Please try again.');
+      setIsRendering(false);
+    }
   };
 
   const addSticker = (sticker) => {
@@ -105,21 +118,36 @@ export default function CustomizePage() {
           </button>
         </div>
 
+        {renderError && (
+          <div style={{
+            padding: '10px 14px',
+            backgroundColor: '#FEE2E2',
+            color: '#B91C1C',
+            borderRadius: 'var(--radius-sm)',
+            fontSize: '0.875rem',
+            textAlign: 'center',
+            fontWeight: '600'
+          }}>
+            {renderError}
+          </div>
+        )}
+
         <button 
           onClick={handleDone}
+          disabled={isRendering}
           style={{
-            backgroundColor: 'var(--coral)',
+            backgroundColor: isRendering ? 'var(--grey-400)' : 'var(--coral)',
             color: 'var(--white)',
             padding: '16px',
             borderRadius: 'var(--radius-full)',
             border: 'none',
             fontSize: '1.25rem',
             fontWeight: 'bold',
-            cursor: 'pointer',
+            cursor: isRendering ? 'not-allowed' : 'pointer',
             boxShadow: 'var(--shadow-sm)'
           }}
         >
-          FINISH
+          {isRendering ? 'GENERATING STRIP...' : 'FINISH'}
         </button>
       </div>
     </div>

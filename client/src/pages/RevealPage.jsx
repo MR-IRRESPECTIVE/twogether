@@ -15,9 +15,26 @@ export default function RevealPage() {
       // If it's a signed HTTP URL instead of a data URL, fetch it to a blob first
       // to avoid CORS download issues or browser navigating away
       if (url.startsWith("http")) {
-        const response = await fetch(url);
-        const blob = await response.blob();
-        downloadUrl = URL.createObjectURL(blob);
+        try {
+          const response = await fetch(url);
+          if (response.ok) {
+            const blob = await response.blob();
+            downloadUrl = URL.createObjectURL(blob);
+          } else {
+            throw new Error(`Direct fetch returned status ${response.status}`);
+          }
+        } catch (fetchErr) {
+          console.warn("Direct download fetch failed, attempting proxy...", fetchErr);
+          const serverUrl = import.meta.env.VITE_SERVER_URL || '';
+          const proxyRes = await fetch(`${serverUrl}/api/proxy-image?url=${encodeURIComponent(url)}`);
+          if (proxyRes.ok) {
+            const blob = await proxyRes.blob();
+            downloadUrl = URL.createObjectURL(blob);
+          } else {
+            window.open(url, '_blank');
+            return;
+          }
+        }
       }
       const a = document.createElement("a");
       a.href = downloadUrl;
@@ -26,7 +43,7 @@ export default function RevealPage() {
       a.click();
       document.body.removeChild(a);
       
-      if (url.startsWith("http")) {
+      if (downloadUrl.startsWith("blob:")) {
         URL.revokeObjectURL(downloadUrl);
       }
     } catch (e) {

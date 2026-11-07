@@ -114,9 +114,11 @@ export default function BoothPage() {
         padding: '16px',
         display: 'flex',
         flexDirection: 'column',
-        alignItems: 'center',
+        alignItems: 'stretch',
         justifyContent: 'center',
-        position: 'relative'
+        position: 'relative',
+        width: '100%',
+        minHeight: 0
       }}>
         <CameraGrid 
           localStream={localStream} 

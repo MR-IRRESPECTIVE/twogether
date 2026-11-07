@@ -38,6 +38,7 @@ export function SessionProvider({ children }) {
 
   useEffect(() => {
     const onStageChanged = (data) => {
+      console.log("[SESSION] stage-changed:", data.stage);
       setStage(data.stage);
       if (data.sessionId) {
         setSessionId(data.sessionId);
@@ -67,6 +68,7 @@ export function SessionProvider({ children }) {
     };
 
     const onPhotoNew = (payload) => {
+      console.log("[SESSION] photo:new received:", payload.photoId);
       setPhotos((prev) => {
         if (prev.some(p => p.id === payload.photoId)) return prev;
         return [...prev, {

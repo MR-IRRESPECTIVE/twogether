@@ -10,6 +10,7 @@ import { registerPhotoRelayHandlers } from './photoRelay.js';
 import { startCleanupTimers } from './cleanup.js';
 import { RECONNECT_GRACE_MS, STAGES } from '../../shared/constants.js';
 import { initStorage } from './storage.js';
+import { fetchSecureImage } from './proxySecurity.js';
 
 const app = express();
 // Trust Render's reverse proxy for correct client IP / protocol detection
@@ -46,6 +47,29 @@ app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// Image proxy endpoint to securely relay R2 / remote images with permissive CORS for canvas rendering
+app.get('/api/proxy-image', async (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  
+  const imageUrl = req.query.url;
+  if (!imageUrl || (!imageUrl.startsWith('http://') && !imageUrl.startsWith('https://'))) {
+    return res.status(400).send('Invalid url parameter');
+  }
+
+  try {
+    const { buffer, contentType } = await fetchSecureImage(imageUrl);
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Length', buffer.length);
+    res.setHeader('Cache-Control', 'public, max-age=86400, immutable');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.send(buffer);
+  } catch (err) {
+    const status = err.status || 500;
+    res.status(status).send(err.message || 'Image proxy error');
+  }
+});
+
 io.on('connection', (socket) => {
   const ip = socket.handshake.address;
 
@@ -74,7 +98,8 @@ io.on('connection', (socket) => {
 
     try {
       const { room, isRejoin, oldId } = roomManager.joinRoom(roomCode, socket.id, name, color, previousId);
-      socket.join(roomCode);
+      socket.join(room.code);
+      console.log(`[SERVER] socket ${socket.id} joined room ${room.code}. Sockets now in room:`, Array.from(io.sockets.adapter.rooms.get(room.code) || []));
       const serializedRoom = serializeRoom(room);
       
       if (isRejoin) {
@@ -83,14 +108,14 @@ io.on('connection', (socket) => {
         const newParticipant = serializedRoom.participants.find(p => p.id === socket.id);
         socket.to(roomCode).emit('room:participant-joined', { participant: newParticipant, room: serializedRoom });
       }
-      io.to(roomCode).emit('room:update', { room: serializedRoom });
+      io.to(room.code).emit('room:update', { room: serializedRoom });
       
       let currentSession = null;
       if (room.currentSessionId) {
         currentSession = sessionManager.getSession(room.currentSessionId);
       }
       
-      callback({ roomCode, participantId: socket.id, room: serializedRoom, session: currentSession });
+      callback({ roomCode: room.code, participantId: socket.id, room: serializedRoom, session: currentSession });
     } catch (err) {
       callback({ error: err.message });
     }
@@ -103,8 +128,8 @@ io.on('connection', (socket) => {
       const room = roomManager.getRoom(roomCode);
       if (room) {
         const serializedRoom = serializeRoom(room);
-        io.to(roomCode).emit('room:participant-left', { participantId: socket.id, room: serializedRoom });
-        io.to(roomCode).emit('room:update', { room: serializedRoom });
+        io.to(room.code).emit('room:participant-left', { participantId: socket.id, room: serializedRoom });
+        io.to(room.code).emit('room:update', { room: serializedRoom });
       }
     } catch (err) {
       socket.emit('error', { message: err.message });
@@ -117,8 +142,8 @@ io.on('connection', (socket) => {
       const room = roomManager.getRoom(roomCode);
       if (room) {
         const serializedRoom = serializeRoom(room);
-        io.to(roomCode).emit('room:camera-ready', { participantId: socket.id, ready, room: serializedRoom });
-        io.to(roomCode).emit('room:update', { room: serializedRoom });
+        io.to(room.code).emit('room:camera-ready', { participantId: socket.id, ready, room: serializedRoom });
+        io.to(room.code).emit('room:update', { room: serializedRoom });
       }
     } catch (err) {
       socket.emit('error', { message: err.message });
@@ -131,7 +156,7 @@ io.on('connection', (socket) => {
       const room = roomManager.getRoom(roomCode);
       if (room) {
         const serializedRoom = serializeRoom(room);
-        io.to(roomCode).emit('room:update', { room: serializedRoom });
+        io.to(room.code).emit('room:update', { room: serializedRoom });
       }
     } catch (err) {
       socket.emit('error', { message: err.message });
@@ -140,13 +165,15 @@ io.on('connection', (socket) => {
 
   socket.on('session:start', ({ roomCode }) => {
     try {
-      const room = roomManager.getRoom(roomCode);
+      const room = roomCode ? roomManager.getRoom(roomCode) : roomManager.getRoomBySocketId(socket.id);
       if (!room || room.hostId !== socket.id) {
         return socket.emit('error', { message: 'Only the host can perform this action' });
       }
-      const session = sessionManager.createSession(roomCode);
+      const session = sessionManager.createSession(room.code);
       room.currentSessionId = session.id;
-      io.to(roomCode).emit('session:stage-changed', { stage: STAGES.FORMAT_SELECT, session });
+      const roomSockets = Array.from(io.sockets.adapter.rooms.get(room.code) || []);
+      console.log(`[SERVER] session:start for room ${room.code}, session ${session.id}, sockets in room:`, roomSockets);
+      io.to(room.code).emit('session:stage-changed', { stage: STAGES.FORMAT_SELECT, session });
     } catch (err) {
       socket.emit('error', { message: err.message });
     }
@@ -159,7 +186,7 @@ io.on('connection', (socket) => {
         return socket.emit('error', { message: 'Only the host can perform this action' });
       }
       sessionManager.setLayout(sessionId, layoutId);
-      io.to(roomCode).emit('session:layout-changed', { layoutId });
+      io.to(room.code).emit('session:layout-changed', { layoutId });
     } catch (err) {
       socket.emit('error', { message: err.message });
     }
@@ -167,12 +194,14 @@ io.on('connection', (socket) => {
 
   socket.on('session:to-booth', ({ roomCode, sessionId }) => {
     try {
-      const room = roomManager.getRoom(roomCode);
+      const room = roomCode ? roomManager.getRoom(roomCode) : roomManager.getRoomBySocketId(socket.id);
       if (!room || room.hostId !== socket.id) {
         return socket.emit('error', { message: 'Only the host can perform this action' });
       }
       sessionManager.setStage(sessionId, STAGES.BOOTH);
-      io.to(roomCode).emit('session:stage-changed', { stage: STAGES.BOOTH });
+      const roomSockets = Array.from(io.sockets.adapter.rooms.get(room.code) || []);
+      console.log(`[SERVER] session:to-booth for room ${room.code}, sockets in room:`, roomSockets);
+      io.to(room.code).emit('session:stage-changed', { stage: STAGES.BOOTH, sessionId });
     } catch (err) {
       socket.emit('error', { message: err.message });
     }
@@ -197,7 +226,7 @@ io.on('connection', (socket) => {
         return socket.emit('error', { message: 'Only the host can perform this action' });
       }
       sessionManager.setStage(sessionId, STAGES.SELECTION);
-      io.to(roomCode).emit('session:stage-changed', { stage: STAGES.SELECTION });
+      io.to(room.code).emit('session:stage-changed', { stage: STAGES.SELECTION, sessionId });
     } catch (err) {
       socket.emit('error', { message: err.message });
     }
@@ -217,7 +246,7 @@ io.on('connection', (socket) => {
         }
       }
       
-      io.to(roomCode).emit('selection:confirmed', { participantId: socket.id, photoIds });
+      io.to(room.code).emit('selection:confirmed', { participantId: socket.id, photoIds });
       if (typeof callback === 'function') {
         callback({ success: true, stage: STAGES.CUSTOMIZE });
       }
@@ -238,7 +267,7 @@ io.on('connection', (socket) => {
           // ignore
         }
       }
-      io.to(roomCode).emit('customize:done', { participantId: socket.id });
+      io.to(room.code).emit('customize:done', { participantId: socket.id });
       if (typeof callback === 'function') {
         callback({ success: true, stage: STAGES.REVEAL });
       }
@@ -271,7 +300,12 @@ io.on('connection', (socket) => {
           
           storageKey = await uploadStrip(room.code, stripId, buffer);
           if (storageKey) {
-            stripUrl = await getSignedUrl(storageKey, 21600);
+            const signed = await getSignedUrl(storageKey, 21600);
+            if (signed) {
+              stripUrl = signed;
+            } else {
+              storageKey = null;
+            }
           }
         }
       }
@@ -340,7 +374,7 @@ io.on('connection', (socket) => {
         return strip;
       }));
 
-      io.to(roomCode).emit('session:stage-changed', { 
+      io.to(room.code).emit('session:stage-changed', { 
         stage: STAGES.FORMAT_SELECT, 
         session: newSession,
         layoutId: newSession.layoutId,
@@ -354,7 +388,8 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('disconnect', () => {
+  socket.on('disconnect', (reason) => {
+    console.log(`[SERVER] socket ${socket.id} disconnected, reason: ${reason}`);
     const room = roomManager.markDisconnected(socket.id);
     if (room) {
       io.to(room.code).emit('room:participant-reconnecting', { participantId: socket.id, room: serializeRoom(room) });

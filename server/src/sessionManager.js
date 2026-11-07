@@ -68,7 +68,7 @@ export class SessionManager {
     }
   }
 
-  addPhoto(sessionId, photoUrl, metadata, storageKey) {
+  addPhoto(sessionId, photoUrl, metadata, storageKey, base64Data) {
     const session = this.sessions.get(sessionId);
     if (!session) return null;
 
@@ -77,7 +77,7 @@ export class SessionManager {
     }
 
     this.touch(sessionId);
-    const photoEntry = { data: photoUrl, metadata, storageKey };
+    const photoEntry = { data: photoUrl, base64Data, metadata, storageKey };
     session.photoBuffer.set(metadata.id, photoEntry);
     session.photoCount++;
     return photoEntry;

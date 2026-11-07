@@ -1,4 +1,4 @@
-import { S3Client, PutObjectCommand, DeleteObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, DeleteObjectCommand, ListObjectsV2Command, PutBucketCorsCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl as getAwsSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { GetObjectCommand } from '@aws-sdk/client-s3';
 
@@ -33,6 +33,31 @@ export function initStorage() {
   });
 
   console.log(`Configured S3-compatible storage with bucket: ${bucketName}`);
+
+  // Best-effort ensure CORS configuration on S3/R2 bucket so browser can fetch/draw presigned URLs
+  try {
+    const corsCommand = new PutBucketCorsCommand({
+      Bucket: bucketName,
+      CORSConfiguration: {
+        CORSRules: [
+          {
+            AllowedHeaders: ['*'],
+            AllowedMethods: ['GET', 'HEAD'],
+            AllowedOrigins: ['*'],
+            MaxAgeSeconds: 86400,
+          }
+        ]
+      }
+    });
+    s3Client.send(corsCommand).then(() => {
+      console.log('Successfully verified/configured bucket CORS rules.');
+    }).catch(err => {
+      console.warn('Bucket CORS auto-config (non-fatal, proxy handles fallback):', err.message);
+    });
+  } catch (err) {
+    console.warn('Bucket CORS init error:', err.message);
+  }
+
   return s3Client;
 }
 

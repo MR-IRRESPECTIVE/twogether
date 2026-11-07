@@ -12,11 +12,14 @@ export default function SelectionPage() {
   const maxSelections = photos.length > 0 ? Math.min(totalSlots, photos.length) : totalSlots;
 
   const toggleSelection = (id) => {
-    if (selectedIds.includes(id)) {
-      setSelectedIds(selectedIds.filter(selId => selId !== id));
-    } else if (selectedIds.length < maxSelections) {
-      setSelectedIds([...selectedIds, id]);
-    }
+    setSelectedIds(prev => {
+      if (prev.includes(id)) {
+        return prev.filter(selId => selId !== id);
+      } else if (prev.length < maxSelections) {
+        return [...prev, id];
+      }
+      return prev;
+    });
   };
 
   const handleConfirm = () => {
