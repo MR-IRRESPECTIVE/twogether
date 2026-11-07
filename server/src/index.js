@@ -51,7 +51,7 @@ app.get('/health', (_req, res) => {
 app.get('/api/proxy-image', async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-  
+
   const imageUrl = req.query.url;
   if (!imageUrl || (!imageUrl.startsWith('http://') && !imageUrl.startsWith('https://'))) {
     return res.status(400).send('Invalid url parameter');
@@ -101,7 +101,7 @@ io.on('connection', (socket) => {
       socket.join(room.code);
       console.log(`[SERVER] socket ${socket.id} joined room ${room.code}. Sockets now in room:`, Array.from(io.sockets.adapter.rooms.get(room.code) || []));
       const serializedRoom = serializeRoom(room);
-      
+
       if (isRejoin) {
         socket.to(roomCode).emit('room:participant-reconnected', serializedRoom.participants.find(p => p.id === socket.id));
       } else {
@@ -109,12 +109,12 @@ io.on('connection', (socket) => {
         socket.to(roomCode).emit('room:participant-joined', { participant: newParticipant, room: serializedRoom });
       }
       io.to(room.code).emit('room:update', { room: serializedRoom });
-      
+
       let currentSession = null;
       if (room.currentSessionId) {
         currentSession = sessionManager.getSession(room.currentSessionId);
       }
-      
+
       callback({ roomCode: room.code, participantId: socket.id, room: serializedRoom, session: currentSession });
     } catch (err) {
       callback({ error: err.message });
@@ -226,7 +226,12 @@ io.on('connection', (socket) => {
         return socket.emit('error', { message: 'Only the host can perform this action' });
       }
       sessionManager.setStage(sessionId, STAGES.SELECTION);
-      io.to(room.code).emit('session:stage-changed', { stage: STAGES.SELECTION, sessionId });
+      const sessionPhotos = sessionManager.getPhotos(sessionId).map(p => ({
+        id: p.metadata.id,
+        url: p.data,
+        metadata: p.metadata
+      }));
+      io.to(room.code).emit('session:stage-changed', { stage: STAGES.SELECTION, sessionId, photos: sessionPhotos });
     } catch (err) {
       socket.emit('error', { message: err.message });
     }
@@ -236,7 +241,7 @@ io.on('connection', (socket) => {
     try {
       sessionManager.setSelection(sessionId, socket.id, photoIds);
       sessionManager.setParticipantStage(sessionId, socket.id, STAGES.CUSTOMIZE);
-      
+
       const session = sessionManager.getSession(sessionId);
       if (session && session.stage === STAGES.SELECTION) {
         try {
@@ -245,7 +250,7 @@ io.on('connection', (socket) => {
           // ignore
         }
       }
-      
+
       io.to(room.code).emit('selection:confirmed', { participantId: socket.id, photoIds });
       if (typeof callback === 'function') {
         callback({ success: true, stage: STAGES.CUSTOMIZE });
@@ -286,7 +291,7 @@ io.on('connection', (socket) => {
       }
       const participant = room.participants.get(socket.id);
       const ownerName = participant ? participant.name : 'Unknown';
-      
+
       let stripUrl = stripData;
       let storageKey = null;
       const stripId = `strip-${socket.id}-${Date.now()}`;
@@ -297,7 +302,7 @@ io.on('connection', (socket) => {
         if (matches && matches.length === 3) {
           const buffer = Buffer.from(matches[2], 'base64');
           const { uploadStrip, getSignedUrl } = await import('./storage.js');
-          
+
           storageKey = await uploadStrip(room.code, stripId, buffer);
           if (storageKey) {
             const signed = await getSignedUrl(storageKey, 21600);
@@ -311,11 +316,11 @@ io.on('connection', (socket) => {
       }
 
       const strip = sessionManager.publishStrip(sessionId, socket.id, ownerName, stripUrl, stripId, storageKey);
-      
+
       if (strip) {
         io.to(room.code).emit('reveal:new-strip', { strip });
       }
-      
+
       if (typeof callback === 'function') {
         callback({ success: true });
       }
@@ -329,7 +334,7 @@ io.on('connection', (socket) => {
     try {
       const strips = sessionManager.getPublishedStrips(sessionId);
       const { getSignedUrl } = await import('./storage.js');
-      
+
       const freshStrips = await Promise.all(strips.map(async strip => {
         if (strip.storageKey) {
           const freshUrl = await getSignedUrl(strip.storageKey, 21600);
@@ -337,7 +342,7 @@ io.on('connection', (socket) => {
         }
         return strip;
       }));
-      
+
       if (typeof callback === 'function') {
         callback({ strips: freshStrips });
       }
@@ -352,19 +357,19 @@ io.on('connection', (socket) => {
       if (!room || room.hostId !== socket.id) {
       return socket.emit('error', { message: 'Only the host can perform this action' });
       }
-      
+
       // Preserve gallery and layout for the new round
       const oldSession = sessionManager.getSession(sessionId);
       const oldStrips = oldSession ? oldSession.publishedStrips : new Map();
       const oldLayoutId = oldSession ? oldSession.layoutId : null;
 
       sessionManager.endSession(sessionId);
-      
+
       const newSession = sessionManager.createSession(roomCode);
       newSession.publishedStrips = new Map(oldStrips);
       newSession.layoutId = oldLayoutId;
       room.currentSessionId = newSession.id;
-      
+
       const { getSignedUrl } = await import('./storage.js');
       const freshStrips = await Promise.all(Array.from(newSession.publishedStrips.values()).map(async strip => {
         if (strip.storageKey) {
@@ -374,8 +379,8 @@ io.on('connection', (socket) => {
         return strip;
       }));
 
-      io.to(room.code).emit('session:stage-changed', { 
-        stage: STAGES.FORMAT_SELECT, 
+      io.to(room.code).emit('session:stage-changed', {
+        stage: STAGES.FORMAT_SELECT,
         session: newSession,
         layoutId: newSession.layoutId,
         photos: [],
@@ -393,7 +398,7 @@ io.on('connection', (socket) => {
     const room = roomManager.markDisconnected(socket.id);
     if (room) {
       io.to(room.code).emit('room:participant-reconnecting', { participantId: socket.id, room: serializeRoom(room) });
-      
+
       setTimeout(() => {
         const result = roomManager.handleGraceExpiry(room.code, socket.id);
         if (result.removed) {

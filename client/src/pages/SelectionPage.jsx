@@ -1,15 +1,25 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useSession } from '../context/SessionContext';
 import layouts from '../data/layouts.json';
-import './SelectionPage.css'; 
+import './SelectionPage.css';
 
 export default function SelectionPage() {
-  const { photos, confirmSelection, layoutId } = useSession();
+  const { photos, confirmSelection, layoutId, sessionId, requestAllPhotos, pendingUploads } = useSession();
   const [selectedIds, setSelectedIds] = useState([]);
-  
+
   const layout = layouts.find(l => l.id === layoutId) || layouts[0];
   const totalSlots = layout?.photoSlots?.length || 4;
-  const maxSelections = photos.length > 0 ? Math.min(totalSlots, photos.length) : totalSlots;
+
+  useEffect(() => {
+    if (typeof requestAllPhotos === 'function') {
+      requestAllPhotos();
+    }
+  }, [sessionId]);
+
+  // Target count: enforce totalSlots, preventing premature truncated selection while uploads are in flight
+  const maxSelections = photos.length >= totalSlots
+    ? totalSlots
+    : (pendingUploads > 0 ? totalSlots : (photos.length > 0 ? photos.length : totalSlots));
 
   const toggleSelection = (id) => {
     setSelectedIds(prev => {
@@ -32,12 +42,17 @@ export default function SelectionPage() {
     <div className="selection-page">
       <h2>Select {maxSelections} Photo{maxSelections > 1 ? 's' : ''}</h2>
       <p>{selectedIds.length} / {maxSelections} selected</p>
-      
+      {pendingUploads > 0 && (
+        <p style={{ fontSize: '0.875rem', color: 'var(--coral)', fontWeight: 'bold' }}>
+          Syncing photos from booth...
+        </p>
+      )}
+
       {photos.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '48px 16px', color: 'var(--grey-600)' }}>
           <p style={{ marginBottom: '16px' }}>No photos found in this session.</p>
-          <button 
-            className="btn-confirm" 
+          <button
+            className="btn-confirm"
             onClick={() => confirmSelection([])}
           >
             CONTINUE TO CUSTOMIZE
@@ -49,8 +64,8 @@ export default function SelectionPage() {
             {photos.map(photo => {
               const isSelected = selectedIds.includes(photo.id);
               return (
-                <div 
-                  key={photo.id} 
+                <div
+                  key={photo.id}
                   className={`photo-item ${isSelected ? 'selected' : ''}`}
                   onClick={() => toggleSelection(photo.id)}
                 >
@@ -61,8 +76,8 @@ export default function SelectionPage() {
             })}
           </div>
 
-          <button 
-            className="btn-confirm" 
+          <button
+            className="btn-confirm"
             onClick={handleConfirm}
             disabled={selectedIds.length < maxSelections}
           >

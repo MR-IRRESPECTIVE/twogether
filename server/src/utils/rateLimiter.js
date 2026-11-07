@@ -6,6 +6,10 @@ export class RateLimiter {
   }
 
   isRateLimited(ip) {
+    if (process.env.NODE_ENV !== 'production' && (ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1')) {
+      return false;
+    }
+
     const now = Date.now();
     this._cleanup(now);
 

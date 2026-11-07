@@ -2,7 +2,7 @@ import { uploadPhoto, getSignedUrl } from './storage.js';
 
 
 export function registerPhotoRelayHandlers(io, socket, sessionManager, roomManager) {
-  socket.on('photo:upload', async ({ sessionId, photoData, metadata }) => {
+  socket.on('photo:upload', async ({ sessionId, photoData, metadata }, callback) => {
     console.log(`[SERVER] Received photo:upload for session: ${sessionId}, metadata ID: ${metadata?.id}`);
     try {
       let session = sessionId ? sessionManager.getSession(sessionId) : null;
@@ -15,9 +15,10 @@ export function registerPhotoRelayHandlers(io, socket, sessionManager, roomManag
       }
       if (!session) {
         console.warn(`[SERVER] Session not found for sessionId: ${sessionId}`);
+        if (typeof callback === 'function') callback({ error: 'Session not found' });
         return;
       }
-      
+
       let photoUrl = photoData;
       let storageKey = null;
 
@@ -45,34 +46,46 @@ export function registerPhotoRelayHandlers(io, socket, sessionManager, roomManag
           photoData: storageKey ? photoUrl : (photoData || photoEntry.data),
           metadata: photoEntry.metadata
         });
+        if (typeof callback === 'function') {
+          callback({ success: true, photoId: metadata.id, photoUrl: photoEntry.data });
+        }
       } else {
+        if (typeof callback === 'function') callback({ error: 'Photo cap reached for this session' });
         socket.emit('error', { message: 'Photo cap reached for this session' });
       }
     } catch (err) {
+      if (typeof callback === 'function') callback({ error: err.message });
       socket.emit('error', { message: err.message });
     }
   });
 
-  socket.on('photo:request-all', async ({ sessionId }) => {
+  socket.on('photo:request-all', async ({ sessionId }, callback) => {
     try {
       const session = sessionManager.getSession(sessionId);
-      if (!session) return;
-      
+      if (!session) {
+        if (typeof callback === 'function') callback({ error: 'Session not found' });
+        return;
+      }
+
       const photos = sessionManager.getPhotos(sessionId);
-      
+
       const freshPhotos = await Promise.all(photos.map(async p => {
         if (p.storageKey) {
           const freshUrl = await getSignedUrl(p.storageKey, 21600);
-          return { ...p, data: freshUrl };
+          return { ...p, data: freshUrl || p.base64Data || p.data };
         }
         if (p.base64Data) {
           return { ...p, data: p.base64Data };
         }
         return p;
       }));
-      
+
       socket.emit('photo:all', { photos: freshPhotos });
+      if (typeof callback === 'function') {
+        callback({ photos: freshPhotos });
+      }
     } catch (err) {
+      if (typeof callback === 'function') callback({ error: err.message });
       socket.emit('error', { message: err.message });
     }
   });

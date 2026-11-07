@@ -83,8 +83,16 @@ export function validateProxyUrl(targetUrlString) {
   // Path validation: Must match expected photobooth storage structure
   // e.g. /rooms/{code}/photos/{id}.jpg, /rooms/{code}/strips/{id}.png
   // or with bucket prefix: /{bucket}/rooms/{code}/...
+  // or with legacy double bucket prefix: /{bucket}/{bucket}/rooms/{code}/...
   const bucketName = process.env.OBJECT_STORAGE_BUCKET;
-  const pathRegex = /^(\/[A-Za-z0-9_-]+)?\/rooms\/[A-Za-z0-9_-]+\/(photos|strips)\/[A-Za-z0-9_.-]+\.(jpg|jpeg|png)$/i;
+  const escapedBucket = bucketName
+    ? bucketName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    : '[A-Za-z0-9_.-]+';
+
+  const pathRegex = new RegExp(
+    `^(?:\\/${escapedBucket}){0,2}\\/rooms\\/[A-Za-z0-9_-]+\\/(photos|strips)\\/[A-Za-z0-9_.-]+\\.(jpg|jpeg|png)$`,
+    'i'
+  );
 
   if (!pathRegex.test(parsed.pathname)) {
     return { valid: false, error: 'Path does not match authorized storage resource pattern' };

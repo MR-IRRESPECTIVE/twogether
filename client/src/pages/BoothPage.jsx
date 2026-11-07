@@ -14,15 +14,18 @@ import layouts from '../data/layouts.json';
 
 export default function BoothPage() {
   const { isHost, participants, roomCode, myId } = useRoom();
-  const { photos, startCountdown, endBooth, sessionId, layoutId } = useSession();
-  
+  const { photos, startCountdown, endBooth, sessionId, layoutId, uploadPhoto, pendingUploads, requestAllPhotos } = useSession();
+
+  const [unconfirmedUploads, setUnconfirmedUploads] = useState([]);
+  const [retryingId, setRetryingId] = useState(null);
+
   const layout = layouts.find(l => l.id === layoutId) || layouts[0];
-  const targetSlotAspect = (layout.photoSlots && layout.photoSlots[0]) 
-    ? layout.photoSlots[0].width / layout.photoSlots[0].height 
+  const targetSlotAspect = (layout.photoSlots && layout.photoSlots[0])
+    ? layout.photoSlots[0].width / layout.photoSlots[0].height
     : 1.333;
-  
+
   const { stream: localStream, remoteStreams } = useMedia();
-  
+
   const [filterCss, setFilterCss] = useState('none');
 
   useEffect(() => {
@@ -33,7 +36,7 @@ export default function BoothPage() {
 
   const [isCounting, setIsCounting] = useState(false);
   const [countdownVal, setCountdownVal] = useState(3);
-  
+
   useEffect(() => {
     const onCountdown = () => {
       console.log("[CAPTURE][COUNTDOWN-START]");
@@ -61,12 +64,12 @@ export default function BoothPage() {
       remoteStreamCount: remoteStreams?.size,
       participants: participants?.length
     });
-    
+
     // Allow the 0.5s flash animation to play before unmounting the overlay
     setTimeout(() => {
       setIsCounting(false);
     }, 500);
-    
+
     const captureItems = [];
     if (localStream) {
       captureItems.push({ stream: localStream, filter: filterCss });
@@ -78,16 +81,49 @@ export default function BoothPage() {
 
     if (captureItems.length > 0 && isHost) {
       console.log("Host is capturing frame...", captureItems.length, "items");
-      captureFrame(captureItems, targetSlotAspect).then(({ dataUrl }) => {
+      captureFrame(captureItems, targetSlotAspect).then(async ({ dataUrl }) => {
         console.log("Frame captured! Emitting photo:upload...");
-        socket.emit('photo:upload', { 
-          sessionId, 
-          photoData: dataUrl, 
-          metadata: { id: Date.now().toString(), capturedBy: socket.id, timestamp: Date.now() } 
-        });
+        const meta = { id: Date.now().toString(), capturedBy: socket.id, timestamp: Date.now() };
+        if (typeof uploadPhoto === 'function') {
+          const res = await uploadPhoto(dataUrl, meta);
+          if (!res?.success) {
+            console.error("Photo upload unconfirmed:", res?.error);
+            setUnconfirmedUploads(prev => [...prev.filter(u => u.meta.id !== meta.id), { dataUrl, meta, error: res?.error }]);
+          } else {
+            setUnconfirmedUploads(prev => prev.filter(u => u.meta.id !== meta.id));
+          }
+        } else {
+          socket.emit('photo:upload', {
+            sessionId,
+            photoData: dataUrl,
+            metadata: meta
+          });
+        }
       }).catch(err => {
         console.error("CAPTURE FRAME FAILED:", err);
       });
+    }
+  };
+
+  const handleRetryUpload = async (item) => {
+    if (!item) return;
+    setRetryingId(item.meta.id);
+    const res = await uploadPhoto(item.dataUrl, item.meta);
+    setRetryingId(null);
+    if (res?.success) {
+      setUnconfirmedUploads(prev => prev.filter(u => u.meta.id !== item.meta.id));
+    } else {
+      setUnconfirmedUploads(prev => prev.map(u => u.meta.id === item.meta.id ? { ...u, error: res?.error } : u));
+    }
+  };
+
+  const handleSyncWithServer = async () => {
+    if (typeof requestAllPhotos === 'function') {
+      const res = await requestAllPhotos();
+      if (res?.success && res.photos) {
+        const serverIds = new Set(res.photos.map(p => p.metadata?.id || p.id));
+        setUnconfirmedUploads(prev => prev.filter(u => !serverIds.has(u.meta.id)));
+      }
     }
   };
 
@@ -101,9 +137,9 @@ export default function BoothPage() {
       position: 'relative'
     }}>
       {isCounting && (
-        <CountdownOverlay 
-          duration={countdownVal} 
-          onFlash={onFlash} 
+        <CountdownOverlay
+          duration={countdownVal}
+          onFlash={onFlash}
         />
       )}
 
@@ -120,15 +156,69 @@ export default function BoothPage() {
         width: '100%',
         minHeight: 0
       }}>
-        <CameraGrid 
-          localStream={localStream} 
-          remoteStreams={remoteStreams} 
+        <CameraGrid
+          localStream={localStream}
+          remoteStreams={remoteStreams}
           myId={myId}
           myFilterCss={filterCss}
           participants={participants || []}
           targetSlotAspect={targetSlotAspect}
         />
       </div>
+
+      {/* Unconfirmed Upload Warning Banner */}
+      {unconfirmedUploads.length > 0 && (
+        <div style={{
+          backgroundColor: 'rgba(239, 68, 68, 0.2)',
+          borderTop: '1px solid rgba(239, 68, 68, 0.4)',
+          color: '#fca5a5',
+          padding: '8px 16px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          fontSize: '0.85rem',
+          gap: '12px',
+          flexWrap: 'wrap',
+          zIndex: 10
+        }}>
+          <span>
+            ⚠️ {unconfirmedUploads.length} photo upload could not be confirmed ({unconfirmedUploads[0].error || 'network issue'}).
+          </span>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button
+              onClick={() => handleRetryUpload(unconfirmedUploads[0])}
+              disabled={retryingId === unconfirmedUploads[0].meta.id || pendingUploads > 0}
+              style={{
+                padding: '4px 10px',
+                backgroundColor: 'var(--soft-blue)',
+                color: 'var(--white)',
+                border: 'none',
+                borderRadius: 'var(--radius-sm)',
+                cursor: (retryingId === unconfirmedUploads[0].meta.id || pendingUploads > 0) ? 'not-allowed' : 'pointer',
+                fontSize: '0.8rem',
+                fontWeight: 'bold'
+              }}
+            >
+              {retryingId === unconfirmedUploads[0].meta.id ? 'RETRYING...' : 'RETRY UPLOAD'}
+            </button>
+            <button
+              onClick={handleSyncWithServer}
+              disabled={pendingUploads > 0}
+              style={{
+                padding: '4px 10px',
+                backgroundColor: 'transparent',
+                color: 'var(--cream)',
+                border: '1px solid rgba(255, 255, 255, 0.3)',
+                borderRadius: 'var(--radius-sm)',
+                cursor: pendingUploads > 0 ? 'not-allowed' : 'pointer',
+                fontSize: '0.8rem'
+              }}
+            >
+              SYNC WITH SERVER
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Bottom Controls Bar */}
       <div style={{
@@ -146,28 +236,36 @@ export default function BoothPage() {
         <div style={{ flex: '1 1 auto', minWidth: '100px' }}>
           <FilterSelector currentFilter={filterCss} setFilter={setFilterCss} />
         </div>
-        
+
         <div style={{ flex: '1 1 100%', display: 'flex', justifyContent: 'center', order: -1, marginBottom: '8px' }}>
           <CaptureButton onClick={handleCaptureTrigger} disabled={photos.length >= MAX_PHOTOS_PER_SESSION} />
         </div>
-        
+
         <div style={{ flex: '1 1 auto', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '16px', minWidth: '100px' }}>
           <PhotoCounter count={photos.length} max={MAX_PHOTOS_PER_SESSION} />
           {isHost && (
-            <button 
+            <button
               onClick={endBooth}
+              disabled={pendingUploads > 0 || unconfirmedUploads.length > 0}
+              title={
+                pendingUploads > 0
+                  ? 'Saving photos to server...'
+                  : unconfirmedUploads.length > 0
+                    ? 'Please retry unconfirmed photo uploads before proceeding'
+                    : 'Finish session and select photos'
+              }
               style={{
                 padding: '8px 16px',
-                backgroundColor: 'var(--soft-blue)',
+                backgroundColor: (pendingUploads > 0 || unconfirmedUploads.length > 0) ? 'var(--grey-400)' : 'var(--soft-blue)',
                 color: 'var(--white)',
                 borderRadius: 'var(--radius-sm)',
                 fontWeight: 'bold',
                 fontSize: '0.875rem',
                 border: 'none',
-                cursor: 'pointer'
+                cursor: (pendingUploads > 0 || unconfirmedUploads.length > 0) ? 'not-allowed' : 'pointer'
               }}
             >
-              FINISH
+              {pendingUploads > 0 ? 'SAVING...' : unconfirmedUploads.length > 0 ? 'UPLOAD INCOMPLETE' : 'FINISH'}
             </button>
           )}
         </div>

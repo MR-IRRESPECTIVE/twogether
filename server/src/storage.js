@@ -5,6 +5,21 @@ import { GetObjectCommand } from '@aws-sdk/client-s3';
 let s3Client = null;
 let bucketName = null;
 
+export function normalizeStorageEndpoint(rawEndpoint) {
+  if (!rawEndpoint || typeof rawEndpoint !== 'string') return null;
+  try {
+    const formatted = rawEndpoint.startsWith('http://') || rawEndpoint.startsWith('https://')
+      ? rawEndpoint
+      : `https://${rawEndpoint}`;
+    const parsed = new URL(formatted);
+    const hostWithPort = parsed.port ? `${parsed.hostname}:${parsed.port}` : parsed.hostname;
+    return `${parsed.protocol}//${hostWithPort}`;
+  } catch (err) {
+    console.warn('Failed to parse OBJECT_STORAGE_ENDPOINT:', err.message);
+    return null;
+  }
+}
+
 export function initStorage() {
   const {
     OBJECT_STORAGE_ENDPOINT,
@@ -19,11 +34,17 @@ export function initStorage() {
     return null;
   }
 
+  const normalizedEndpoint = normalizeStorageEndpoint(OBJECT_STORAGE_ENDPOINT);
+  if (!normalizedEndpoint) {
+    console.warn('Invalid OBJECT_STORAGE_ENDPOINT configuration. Storage features will be disabled.');
+    return null;
+  }
+
   bucketName = OBJECT_STORAGE_BUCKET;
 
   s3Client = new S3Client({
     region: OBJECT_STORAGE_REGION || 'auto',
-    endpoint: OBJECT_STORAGE_ENDPOINT,
+    endpoint: normalizedEndpoint,
     credentials: {
       accessKeyId: OBJECT_STORAGE_ACCESS_KEY,
       secretAccessKey: OBJECT_STORAGE_SECRET_KEY,
@@ -32,7 +53,7 @@ export function initStorage() {
     forcePathStyle: true,
   });
 
-  console.log(`Configured S3-compatible storage with bucket: ${bucketName}`);
+  console.log(`Configured S3-compatible storage with bucket: ${bucketName} at endpoint: ${normalizedEndpoint}`);
 
   // Best-effort ensure CORS configuration on S3/R2 bucket so browser can fetch/draw presigned URLs
   try {
@@ -63,9 +84,9 @@ export function initStorage() {
 
 export async function uploadPhoto(roomCode, photoId, buffer) {
   if (!s3Client) return null;
-  
+
   const key = `rooms/${roomCode}/photos/${photoId}.jpg`;
-  
+
   const command = new PutObjectCommand({
     Bucket: bucketName,
     Key: key,
@@ -79,9 +100,9 @@ export async function uploadPhoto(roomCode, photoId, buffer) {
 
 export async function uploadStrip(roomCode, stripId, buffer) {
   if (!s3Client) return null;
-  
+
   const key = `rooms/${roomCode}/strips/${stripId}.png`;
-  
+
   const command = new PutObjectCommand({
     Bucket: bucketName,
     Key: key,
@@ -95,7 +116,7 @@ export async function uploadStrip(roomCode, stripId, buffer) {
 
 export async function getSignedUrl(key, expiresInSeconds = 3600) {
   if (!s3Client) return null;
-  
+
   const command = new GetObjectCommand({
     Bucket: bucketName,
     Key: key,
@@ -123,7 +144,7 @@ export async function deleteRoomObjects(roomCode) {
   if (!s3Client) return;
 
   const prefix = `rooms/${roomCode}/`;
-  
+
   try {
     let continuationToken = undefined;
     do {
@@ -132,17 +153,17 @@ export async function deleteRoomObjects(roomCode) {
         Prefix: prefix,
         ContinuationToken: continuationToken
       });
-      
+
       const listedObjects = await s3Client.send(listCommand);
-      
+
       if (!listedObjects.Contents || listedObjects.Contents.length === 0) {
         break;
       }
-      
+
       for (const obj of listedObjects.Contents) {
         await deleteObject(obj.Key);
       }
-      
+
       continuationToken = listedObjects.NextContinuationToken;
     } while (continuationToken);
   } catch (err) {

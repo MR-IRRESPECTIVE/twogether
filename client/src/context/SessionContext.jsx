@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from "react";
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from "react";
 import { socket } from "../lib/socket";
 import { STAGES } from "@shared/constants.js";
 import { useRoom } from "./RoomContext";
@@ -15,18 +15,60 @@ export function SessionProvider({ children }) {
   const [participantStages, setParticipantStages] = useState(new Map());
   const [finalStripDataUrl, setFinalStripDataUrl] = useState(null);
   const [publishedStrips, setPublishedStrips] = useState([]);
+  const [pendingUploads, setPendingUploads] = useState(0);
+  const outstandingUploadsRef = useRef(new Map()); // photoId -> { resolve, timer, settled: false }
+
+  const settleUpload = useCallback((photoId, result) => {
+    const item = outstandingUploadsRef.current.get(photoId);
+    if (!item || item.settled) return;
+
+    item.settled = true;
+    if (item.timer) {
+      clearTimeout(item.timer);
+      item.timer = null;
+    }
+    outstandingUploadsRef.current.delete(photoId);
+    setPendingUploads(prev => Math.max(0, prev - 1));
+    item.resolve(result);
+  }, []);
+
+  useEffect(() => {
+    const onDisconnect = (reason) => {
+      console.warn("[SESSION] Socket disconnected:", reason);
+      // Immediately settle all in-flight uploads on disconnect
+      const outstanding = Array.from(outstandingUploadsRef.current.keys());
+      for (const photoId of outstanding) {
+        settleUpload(photoId, { success: false, error: `Socket disconnected: ${reason}` });
+      }
+    };
+
+    socket.on("disconnect", onDisconnect);
+
+    return () => {
+      socket.off("disconnect", onDisconnect);
+    };
+  }, [settleUpload]);
+
+  useEffect(() => {
+    return () => {
+      for (const item of outstandingUploadsRef.current.values()) {
+        if (item.timer) clearTimeout(item.timer);
+      }
+      outstandingUploadsRef.current.clear();
+    };
+  }, []);
 
   useEffect(() => {
     if (rejoinedSession) {
       setSessionId(rejoinedSession.id);
       setStage(rejoinedSession.stage);
       if (rejoinedSession.layoutId) setLayoutId(rejoinedSession.layoutId);
-      
+
       // Request photos if in BOOTH or later
       if (rejoinedSession.stage !== STAGES.FORMAT_SELECT) {
         socket.emit("photo:request-all", { sessionId: rejoinedSession.id });
       }
-      
+
       // Request strips if in REVEAL
       if (rejoinedSession.stage === STAGES.REVEAL) {
         socket.emit("reveal:request-strips", { sessionId: rejoinedSession.id }, (res) => {
@@ -51,7 +93,35 @@ export function SessionProvider({ children }) {
         setLayoutId(data.layoutId);
       }
       if (data.photos !== undefined) {
-        setPhotos(data.photos);
+        setPhotos(prev => {
+          // If server explicitly resets photos (e.g. empty array on new round), honor it
+          if (Array.isArray(data.photos) && data.photos.length === 0) {
+            return [];
+          }
+          const map = new Map(prev.map(p => [p.id, p]));
+          for (const p of (data.photos || [])) {
+            const photoId = p.metadata?.id || p.id;
+            const photoUrl = p.data || p.url;
+            if (!photoId) continue;
+            const existing = map.get(photoId);
+            if (!existing) {
+              if (photoUrl) {
+                map.set(photoId, {
+                  id: photoId,
+                  url: photoUrl,
+                  metadata: p.metadata
+                });
+              }
+            } else if (!existing.url && photoUrl) {
+              map.set(photoId, {
+                ...existing,
+                url: photoUrl,
+                metadata: p.metadata || existing.metadata
+              });
+            }
+          }
+          return Array.from(map.values());
+        });
       }
       if (data.mySelections !== undefined) {
         setMySelections(data.mySelections);
@@ -70,7 +140,13 @@ export function SessionProvider({ children }) {
     const onPhotoNew = (payload) => {
       console.log("[SESSION] photo:new received:", payload.photoId);
       setPhotos((prev) => {
-        if (prev.some(p => p.id === payload.photoId)) return prev;
+        const existing = prev.find(p => p.id === payload.photoId);
+        if (existing) {
+          if (!existing.url && payload.photoData) {
+            return prev.map(p => p.id === payload.photoId ? { ...p, url: payload.photoData } : p);
+          }
+          return prev;
+        }
         return [...prev, {
           id: payload.photoId,
           url: payload.photoData,
@@ -80,12 +156,31 @@ export function SessionProvider({ children }) {
     };
 
     const onPhotoAll = (payload) => {
-      if (payload.photos) {
-        setPhotos(payload.photos.map(p => ({
-          id: p.metadata.id,
-          url: p.data,
-          metadata: p.metadata
-        })));
+      if (payload && payload.photos) {
+        setPhotos((prev) => {
+          const map = new Map(prev.map(p => [p.id, p]));
+          for (const p of payload.photos) {
+            const photoId = p.metadata?.id || p.id;
+            const photoUrl = p.data || p.url;
+            if (!photoId || !photoUrl) continue;
+
+            const existing = map.get(photoId);
+            if (!existing) {
+              map.set(photoId, {
+                id: photoId,
+                url: photoUrl,
+                metadata: p.metadata
+              });
+            } else {
+              map.set(photoId, {
+                ...existing,
+                url: photoUrl || existing.url,
+                metadata: p.metadata || existing.metadata
+              });
+            }
+          }
+          return Array.from(map.values());
+        });
       }
     };
 
@@ -139,6 +234,77 @@ export function SessionProvider({ children }) {
     socket.emit("photo:trigger", { roomCode });
   };
 
+  const uploadPhoto = useCallback((photoData, metadata) => {
+    const photoId = metadata?.id || Date.now().toString();
+    const meta = metadata || { id: photoId, timestamp: Date.now() };
+
+    // Optimistically preserve captured photo locally so it is never lost
+    setPhotos(prev => {
+      const existing = prev.find(p => p.id === photoId);
+      if (existing) {
+        if (!existing.url && photoData) {
+          return prev.map(p => p.id === photoId ? { ...p, url: photoData } : p);
+        }
+        return prev;
+      }
+      return [...prev, { id: photoId, url: photoData, metadata: meta }];
+    });
+
+    if (!socket.connected) {
+      return Promise.resolve({ success: false, error: 'Socket disconnected' });
+    }
+
+    // If an upload for this photoId is already in flight, settle it first before re-registering
+    if (outstandingUploadsRef.current.has(photoId)) {
+      settleUpload(photoId, { success: false, error: 'Upload superseded by retry' });
+    }
+
+    setPendingUploads(prev => prev + 1);
+
+    return new Promise((resolve) => {
+      // 10-second acknowledgement timeout
+      const timer = setTimeout(() => {
+        console.warn(`[SESSION] Upload timeout for photo: ${photoId}`);
+        settleUpload(photoId, { success: false, error: 'Upload acknowledgement timed out' });
+      }, 10000);
+
+      outstandingUploadsRef.current.set(photoId, {
+        resolve,
+        timer,
+        settled: false,
+      });
+
+      socket.emit("photo:upload", { sessionId, photoData, metadata: meta }, (response) => {
+        if (response && response.error) {
+          console.error("[SESSION] Photo upload failed:", response.error);
+          settleUpload(photoId, { success: false, error: response.error });
+        } else {
+          settleUpload(photoId, {
+            success: true,
+            photoId: response?.photoId || photoId,
+            photoUrl: response?.photoUrl
+          });
+        }
+      });
+    });
+  }, [sessionId, settleUpload]);
+
+  const requestAllPhotos = useCallback(() => {
+    return new Promise((resolve) => {
+      if (!sessionId || !socket.connected) {
+        resolve({ success: false, error: 'Not connected' });
+        return;
+      }
+      socket.emit("photo:request-all", { sessionId }, (res) => {
+        if (res && res.photos) {
+          resolve({ success: true, photos: res.photos });
+        } else {
+          resolve({ success: false, error: res?.error || 'Failed to fetch photos' });
+        }
+      });
+    });
+  }, [sessionId]);
+
   const endBooth = () => {
     socket.emit("session:end-booth", { roomCode, sessionId });
   };
@@ -186,6 +352,9 @@ export function SessionProvider({ children }) {
         participantStages,
         finalStripDataUrl,
         publishedStrips,
+        pendingUploads,
+        uploadPhoto,
+        requestAllPhotos,
         startSession,
         setLayout,
         startCountdown,

@@ -1,3 +1,13 @@
+function redactUrl(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== 'string') return '';
+  try {
+    const parsed = new URL(rawUrl);
+    return `${parsed.protocol}//${parsed.host}${parsed.pathname}`;
+  } catch {
+    return rawUrl.split('?')[0];
+  }
+}
+
 async function loadHtmlImage(url) {
   if (!url) return null;
 
@@ -6,15 +16,10 @@ async function loadHtmlImage(url) {
     return new Promise((resolve) => {
       const img = new Image();
       img.onload = async () => {
-        try {
-          
-        } catch (e) {
-          // ignore decode errors
-        }
         resolve(img);
       };
       img.onerror = (e) => {
-        console.warn("Failed to load data/blob image in strip renderer:", e);
+        console.warn("Failed to load data/blob image in strip renderer");
         resolve(null);
       };
       img.src = url;
@@ -24,24 +29,22 @@ async function loadHtmlImage(url) {
   // 2. HTTP(S) URL: Try direct fetch -> blob -> object URL
   try {
     const res = await fetch(url, { mode: 'cors' });
-    if (res.ok) {
+    const contentType = (res.headers.get('content-type') || '').toLowerCase();
+    if (res.ok && contentType.startsWith('image/')) {
       const blob = await res.blob();
-      const objectUrl = URL.createObjectURL(blob);
-      const img = await new Promise((resolve) => {
-        const i = new Image();
-        i.onload = async () => {
-          try {
-            
-          } catch (e) {}
-          resolve(i);
-        };
-        i.onerror = () => resolve(null);
-        i.src = objectUrl;
-      });
-      if (img) return img;
+      if (blob && blob.size > 0) {
+        const objectUrl = URL.createObjectURL(blob);
+        const img = await new Promise((resolve) => {
+          const i = new Image();
+          i.onload = () => resolve(i);
+          i.onerror = () => resolve(null);
+          i.src = objectUrl;
+        });
+        if (img) return img;
+      }
     }
   } catch (err) {
-    console.warn("Direct fetch for strip photo failed, trying proxy fallback...", err);
+    console.warn("Direct fetch for strip photo failed, trying proxy fallback...", redactUrl(url));
   }
 
   // 3. Backend image proxy fallback for cross-origin URLs
@@ -49,38 +52,33 @@ async function loadHtmlImage(url) {
     const serverUrl = import.meta.env.VITE_SERVER_URL || '';
     const proxyUrl = `${serverUrl}/api/proxy-image?url=${encodeURIComponent(url)}`;
     const res = await fetch(proxyUrl);
-    if (res.ok) {
+    const contentType = (res.headers.get('content-type') || '').toLowerCase();
+    if (res.ok && contentType.startsWith('image/')) {
       const blob = await res.blob();
-      const objectUrl = URL.createObjectURL(blob);
-      const img = await new Promise((resolve) => {
-        const i = new Image();
-        i.onload = async () => {
-          try {
-            
-          } catch (e) {}
-          resolve(i);
-        };
-        i.onerror = () => resolve(null);
-        i.src = objectUrl;
-      });
-      if (img) return img;
+      if (blob && blob.size > 0) {
+        const objectUrl = URL.createObjectURL(blob);
+        const img = await new Promise((resolve) => {
+          const i = new Image();
+          i.onload = () => resolve(i);
+          i.onerror = () => resolve(null);
+          i.src = objectUrl;
+        });
+        if (img) return img;
+      }
+    } else {
+      console.warn("Proxy response not a valid image:", redactUrl(url), `status: ${res.status}, type: ${contentType}`);
     }
   } catch (err) {
-    console.warn("Proxy fetch for strip photo failed:", err);
+    console.warn("Proxy fetch for strip photo failed:", redactUrl(url), err.message);
   }
 
   // 4. Fallback: Image element with crossOrigin
   return new Promise((resolve) => {
     const img = new Image();
     img.crossOrigin = "anonymous";
-    img.onload = async () => {
-      try {
-        
-      } catch (e) {}
-      resolve(img);
-    };
+    img.onload = () => resolve(img);
     img.onerror = () => {
-      console.warn("All image load attempts failed for url:", url);
+      console.warn("All image load attempts failed for url:", redactUrl(url));
       resolve(null);
     };
     img.src = url;

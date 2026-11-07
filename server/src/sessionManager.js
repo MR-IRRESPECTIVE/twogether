@@ -23,7 +23,7 @@ export class SessionManager {
       lastActivityAt: now
     };
     this.sessions.set(session.id, session);
-    
+
     return session;
   }
 
@@ -72,6 +72,14 @@ export class SessionManager {
     const session = this.sessions.get(sessionId);
     if (!session) return null;
 
+    // Idempotent retry: if this photoId is already in buffer, update it without incrementing count
+    if (metadata?.id && session.photoBuffer.has(metadata.id)) {
+      this.touch(sessionId);
+      const photoEntry = { data: photoUrl, base64Data, metadata, storageKey };
+      session.photoBuffer.set(metadata.id, photoEntry);
+      return photoEntry;
+    }
+
     if (session.photoCount >= MAX_PHOTOS_PER_SESSION) {
       return null;
     }
@@ -86,7 +94,7 @@ export class SessionManager {
   getPhotos(sessionId) {
     const session = this.sessions.get(sessionId);
     if (!session) return [];
-    
+
     return Array.from(session.photoBuffer.values());
   }
 
