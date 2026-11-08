@@ -76,13 +76,13 @@ io.on('connection', (socket) => {
   registerSignalingHandlers(io, socket);
   registerPhotoRelayHandlers(io, socket, sessionManager, roomManager);
 
-  socket.on('room:create', ({ name, color, expectedCount }, callback) => {
+  socket.on('room:create', ({ name, color, expectedCount, mode }, callback) => {
     if (rateLimiter.isRateLimited(ip)) {
       return callback({ error: 'Too many join attempts. Please try again later.' });
     }
 
     try {
-      const room = roomManager.createRoom(socket.id, name, color, expectedCount);
+      const room = roomManager.createRoom(socket.id, name, color, expectedCount, mode);
       socket.join(room.code);
       callback({ roomCode: room.code, participantId: socket.id, room: serializeRoom(room) });
     } catch (err) {
@@ -163,18 +163,24 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('session:start', ({ roomCode }) => {
+  socket.on('session:start', ({ roomCode }, callback) => {
     try {
       const room = roomCode ? roomManager.getRoom(roomCode) : roomManager.getRoomBySocketId(socket.id);
       if (!room || room.hostId !== socket.id) {
-        return socket.emit('error', { message: 'Only the host can perform this action' });
+        const errorMsg = 'Only the host can perform this action';
+        if (typeof callback === 'function') callback({ error: errorMsg });
+        return socket.emit('error', { message: errorMsg });
       }
       const session = sessionManager.createSession(room.code);
       room.currentSessionId = session.id;
       const roomSockets = Array.from(io.sockets.adapter.rooms.get(room.code) || []);
       console.log(`[SERVER] session:start for room ${room.code}, session ${session.id}, sockets in room:`, roomSockets);
       io.to(room.code).emit('session:stage-changed', { stage: STAGES.FORMAT_SELECT, session });
+      if (typeof callback === 'function') {
+        callback({ success: true, sessionId: session.id, stage: STAGES.FORMAT_SELECT, session });
+      }
     } catch (err) {
+      if (typeof callback === 'function') callback({ success: false, error: err.message });
       socket.emit('error', { message: err.message });
     }
   });
@@ -219,10 +225,11 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('session:end-booth', ({ roomCode, sessionId }) => {
+  socket.on('session:end-booth', ({ roomCode, sessionId }, callback) => {
     try {
       const room = roomManager.getRoom(roomCode);
       if (!room || room.hostId !== socket.id) {
+        if (typeof callback === 'function') callback({ success: false, error: 'Only the host can perform this action' });
         return socket.emit('error', { message: 'Only the host can perform this action' });
       }
       sessionManager.setStage(sessionId, STAGES.SELECTION);
@@ -232,13 +239,17 @@ io.on('connection', (socket) => {
         metadata: p.metadata
       }));
       io.to(room.code).emit('session:stage-changed', { stage: STAGES.SELECTION, sessionId, photos: sessionPhotos });
+      if (typeof callback === 'function') callback({ success: true, stage: STAGES.SELECTION, photos: sessionPhotos });
     } catch (err) {
+      if (typeof callback === 'function') callback({ success: false, error: err.message });
       socket.emit('error', { message: err.message });
     }
   });
 
   socket.on('selection:confirm', ({ roomCode, sessionId, photoIds }, callback) => {
     try {
+      const room = roomCode ? roomManager.getRoom(roomCode) : roomManager.getRoomBySocketId(socket.id);
+      const code = room ? room.code : roomCode;
       sessionManager.setSelection(sessionId, socket.id, photoIds);
       sessionManager.setParticipantStage(sessionId, socket.id, STAGES.CUSTOMIZE);
 
@@ -251,18 +262,22 @@ io.on('connection', (socket) => {
         }
       }
 
-      io.to(room.code).emit('selection:confirmed', { participantId: socket.id, photoIds });
+      if (code) {
+        io.to(code).emit('selection:confirmed', { participantId: socket.id, photoIds });
+      }
       if (typeof callback === 'function') {
         callback({ success: true, stage: STAGES.CUSTOMIZE });
       }
     } catch (err) {
-      if (typeof callback === 'function') callback({ error: err.message });
+      if (typeof callback === 'function') callback({ success: false, error: err.message });
       socket.emit('error', { message: err.message });
     }
   });
 
   socket.on('customize:done', ({ roomCode, sessionId }, callback) => {
     try {
+      const room = roomCode ? roomManager.getRoom(roomCode) : roomManager.getRoomBySocketId(socket.id);
+      const code = room ? room.code : roomCode;
       sessionManager.setParticipantStage(sessionId, socket.id, STAGES.REVEAL);
       const session = sessionManager.getSession(sessionId);
       if (session && session.stage === STAGES.CUSTOMIZE) {
@@ -272,12 +287,14 @@ io.on('connection', (socket) => {
           // ignore
         }
       }
-      io.to(room.code).emit('customize:done', { participantId: socket.id });
+      if (code) {
+        io.to(code).emit('customize:done', { participantId: socket.id });
+      }
       if (typeof callback === 'function') {
         callback({ success: true, stage: STAGES.REVEAL });
       }
     } catch (err) {
-      if (typeof callback === 'function') callback({ error: err.message });
+      if (typeof callback === 'function') callback({ success: false, error: err.message });
       socket.emit('error', { message: err.message });
     }
   });
@@ -325,7 +342,7 @@ io.on('connection', (socket) => {
         callback({ success: true });
       }
     } catch (err) {
-      if (typeof callback === 'function') callback({ error: err.message });
+      if (typeof callback === 'function') callback({ success: false, error: err.message });
       socket.emit('error', { message: err.message });
     }
   });

@@ -5,6 +5,12 @@
 export const MAX_PARTICIPANTS = 4;
 export const MIN_PARTICIPANTS = 2;
 export const MAX_PHOTOS_PER_SESSION = 20;
+
+// Room modes
+export const ROOM_MODES = {
+  GROUP: 'group',
+  SOLO: 'solo',
+};
 export const RECONNECT_GRACE_MS = 90_000; // 90 seconds
 export const SESSION_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
 export const ROOM_INACTIVITY_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours

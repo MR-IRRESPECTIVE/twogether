@@ -57,10 +57,10 @@ export async function captureCompositeFrame(captureItems, targetSlotAspect = 1.3
       vid.playsInline = true;
       vid.srcObject = item.stream;
       vid.onloadedmetadata = () => {
-        vid.play().then(() => resolve({ video: vid, filter: item.filter })).catch(() => resolve({ video: vid, filter: item.filter }));
+        vid.play().then(() => resolve({ video: vid, filter: item.filter, mirrored: item.mirrored })).catch(() => resolve({ video: vid, filter: item.filter, mirrored: item.mirrored }));
       };
       // fallback timeout
-      setTimeout(() => resolve({ video: vid, filter: item.filter }), 1000);
+      setTimeout(() => resolve({ video: vid, filter: item.filter, mirrored: item.mirrored }), 1000);
     });
   });
 
@@ -99,8 +99,13 @@ export async function captureCompositeFrame(captureItems, targetSlotAspect = 1.3
       ctx.filter = filter;
     }
 
-    ctx.translate(slot.x + slot.w, slot.y);
-    ctx.scale(-1, 1);
+    const shouldMirror = item.mirrored !== false;
+    if (shouldMirror) {
+      ctx.translate(slot.x + slot.w, slot.y);
+      ctx.scale(-1, 1);
+    } else {
+      ctx.translate(slot.x, slot.y);
+    }
     ctx.drawImage(video, sx, sy, sw, sh, 0, 0, slot.w, slot.h);
     ctx.restore();
     

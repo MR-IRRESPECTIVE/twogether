@@ -16,6 +16,7 @@ export class SessionManager {
       layoutId: null,
       photoBuffer: new Map(),
       photoCount: 0,
+      soloSlots: new Map(),
       participantSelections: new Map(),
       participantStages: new Map(),
       publishedStrips: new Map(),
@@ -91,6 +92,104 @@ export class SessionManager {
     return photoEntry;
   }
 
+  addSoloPhoto(sessionId, slotIndex, revision, photoUrl, metadata, storageKey, base64Data) {
+    const session = this.sessions.get(sessionId);
+    if (!session) return { success: false, error: 'Session not found' };
+
+    if (!Number.isInteger(slotIndex) || slotIndex < 0 || slotIndex > 3) {
+      return { success: false, error: 'Invalid slot index: must be an integer between 0 and 3' };
+    }
+
+    if (!Number.isInteger(revision) || revision < 1) {
+      return { success: false, error: 'Invalid revision: must be a positive integer' };
+    }
+
+    const photoId = metadata?.id;
+    if (!photoId || typeof photoId !== 'string') {
+      return { success: false, error: 'Invalid photo ID: must be a non-empty string' };
+    }
+
+    // Idempotent retry: exact same capture ID already committed
+    if (session.photoBuffer.has(photoId)) {
+      this.touch(sessionId);
+      const existingEntry = session.photoBuffer.get(photoId);
+      const slotRecord = session.soloSlots.get(slotIndex);
+      return {
+        success: true,
+        photoEntry: existingEntry,
+        slotRecord,
+        superseded: null,
+        isRetry: true
+      };
+    }
+
+    // Check active slot revision fencing
+    const activeSlot = session.soloSlots.get(slotIndex);
+    if (activeSlot) {
+      if (revision <= activeSlot.revision) {
+        return {
+          success: false,
+          stale: true,
+          currentRevision: activeSlot.revision,
+          error: `Stale revision: incoming revision ${revision} is not greater than active revision ${activeSlot.revision}`
+        };
+      }
+    } else {
+      // Filling a previously empty slot
+      if (session.photoCount >= MAX_PHOTOS_PER_SESSION) {
+        return { success: false, error: 'Photo cap reached for this session' };
+      }
+    }
+
+    this.touch(sessionId);
+    let superseded = null;
+
+    if (activeSlot) {
+      superseded = {
+        photoId: activeSlot.photoId,
+        storageKey: activeSlot.storageKey,
+        revision: activeSlot.revision
+      };
+      // Remove superseded photo from buffer so exactly the current slot photos remain
+      session.photoBuffer.delete(activeSlot.photoId);
+      // NOTE: Replacing an existing slot photo does NOT increment photoCount
+    } else {
+      session.photoCount++;
+    }
+
+    const photoEntry = { data: photoUrl, base64Data, metadata, storageKey };
+    session.photoBuffer.set(photoId, photoEntry);
+
+    const slotRecord = {
+      slotIndex,
+      revision,
+      photoId,
+      storageKey,
+      metadata
+    };
+    session.soloSlots.set(slotIndex, slotRecord);
+
+    return {
+      success: true,
+      photoEntry,
+      slotRecord,
+      superseded,
+      isRetry: false
+    };
+  }
+
+  getSoloSlot(sessionId, slotIndex) {
+    const session = this.sessions.get(sessionId);
+    if (!session) return null;
+    return session.soloSlots.get(slotIndex) || null;
+  }
+
+  getSoloSlots(sessionId) {
+    const session = this.sessions.get(sessionId);
+    if (!session) return [];
+    return Array.from(session.soloSlots.values());
+  }
+
   getPhotos(sessionId) {
     const session = this.sessions.get(sessionId);
     if (!session) return [];
@@ -144,6 +243,7 @@ export class SessionManager {
       this.touch(sessionId);
       session.stage = STAGES.ENDED;
       session.photoBuffer.clear();
+      session.soloSlots.clear();
       // publishedStrips are kept because they are needed in "Make Another One" gallery
       session.photoCount = 0;
     }

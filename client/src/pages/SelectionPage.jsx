@@ -6,6 +6,7 @@ import './SelectionPage.css';
 export default function SelectionPage() {
   const { photos, confirmSelection, layoutId, sessionId, requestAllPhotos, pendingUploads } = useSession();
   const [selectedIds, setSelectedIds] = useState([]);
+  const [confirmError, setConfirmError] = useState(null);
 
   const layout = layouts.find(l => l.id === layoutId) || layouts[0];
   const totalSlots = layout?.photoSlots?.length || 4;
@@ -32,9 +33,13 @@ export default function SelectionPage() {
     });
   };
 
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
     if (selectedIds.length === maxSelections && maxSelections > 0) {
-      confirmSelection(selectedIds);
+      setConfirmError(null);
+      const res = await confirmSelection(selectedIds);
+      if (res && !res.success) {
+        setConfirmError(res.error || 'Failed to confirm selection. Please try again.');
+      }
     }
   };
 
@@ -42,6 +47,11 @@ export default function SelectionPage() {
     <div className="selection-page">
       <h2>Select {maxSelections} Photo{maxSelections > 1 ? 's' : ''}</h2>
       <p>{selectedIds.length} / {maxSelections} selected</p>
+      {confirmError && (
+        <p style={{ fontSize: '0.875rem', color: '#c92a2a', fontWeight: 'bold' }}>
+          ⚠️ {confirmError}
+        </p>
+      )}
       {pendingUploads > 0 && (
         <p style={{ fontSize: '0.875rem', color: 'var(--coral)', fontWeight: 'bold' }}>
           Syncing photos from booth...

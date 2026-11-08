@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { socket, emitWithAck } from '../lib/socket';
+import { ROOM_MODES } from '@shared/constants.js';
 
 const RoomContext = createContext(null);
 
@@ -19,6 +20,7 @@ export const RoomProvider = ({ children }) => {
 
   const saved = loadSavedState();
   const [roomCode, setRoomCode] = useState(saved?.roomCode || null);
+  const [roomMode, setRoomMode] = useState(saved?.roomMode || ROOM_MODES.GROUP);
   const [participants, setParticipants] = useState([]);
   const [myId, setMyId] = useState(saved?.myId || null);
   const [myName, setMyName] = useState(saved?.myName || null);
@@ -45,6 +47,8 @@ export const RoomProvider = ({ children }) => {
             setParticipants(response.room.participants);
             setHostId(response.room.hostId);
             setMyId(socket.id);
+            const mode = response.room?.mode || ROOM_MODES.GROUP;
+            setRoomMode(mode);
             if (response.session) {
               setRejoinedSession(response.session);
             }
@@ -52,7 +56,8 @@ export const RoomProvider = ({ children }) => {
               roomCode: response.roomCode,
               myId: socket.id,
               myName,
-              myColor
+              myColor,
+              roomMode: mode
             }));
           }
         });
@@ -110,6 +115,9 @@ export const RoomProvider = ({ children }) => {
       if (room) {
         setParticipants(room.participants || []);
         setHostId(room.hostId);
+        if (room.mode) {
+          setRoomMode(room.mode);
+        }
       }
     });
 
@@ -129,15 +137,17 @@ export const RoomProvider = ({ children }) => {
     };
   }, [roomCode, myName, myColor, myId]);
 
-  const createRoom = async (name, color, expectedCount) => {
-    const response = await emitWithAck('room:create', { name, color, expectedCount });
+  const createRoom = async (name, color, expectedCount, mode = ROOM_MODES.GROUP) => {
+    const response = await emitWithAck('room:create', { name, color, expectedCount, mode });
     if (response.error) {
       throw new Error(response.error);
     }
     if (response.roomCode) {
+      const effectiveMode = response.room?.mode || mode || ROOM_MODES.GROUP;
       setRoomCode(response.room.code);
       setParticipants(response.room.participants);
       setHostId(response.room.hostId);
+      setRoomMode(effectiveMode);
       setMyId(socket.id);
       setMyName(name);
       setMyColor(color);
@@ -145,7 +155,8 @@ export const RoomProvider = ({ children }) => {
         roomCode: response.room.code,
         myId: socket.id,
         myName: name,
-        myColor: color
+        myColor: color,
+        roomMode: effectiveMode
       }));
       return response.room.code;
     }
@@ -158,9 +169,11 @@ export const RoomProvider = ({ children }) => {
       throw new Error(response.error);
     }
     if (response.roomCode) {
+      const effectiveMode = response.room?.mode || ROOM_MODES.GROUP;
       setRoomCode(response.roomCode);
       setParticipants(response.room.participants);
       setHostId(response.room.hostId);
+      setRoomMode(effectiveMode);
       setMyId(socket.id);
       setMyName(name);
       setMyColor(color);
@@ -168,7 +181,8 @@ export const RoomProvider = ({ children }) => {
         roomCode: response.roomCode,
         myId: socket.id,
         myName: name,
-        myColor: color
+        myColor: color,
+        roomMode: effectiveMode
       }));
       return response.roomCode;
     }
@@ -180,6 +194,7 @@ export const RoomProvider = ({ children }) => {
       socket.emit('room:leave', { roomCode });
     }
     setRoomCode(null);
+    setRoomMode(ROOM_MODES.GROUP);
     setParticipants([]);
     setHostId(null);
     setMyId(null);
@@ -192,6 +207,7 @@ export const RoomProvider = ({ children }) => {
     <RoomContext.Provider
       value={{
         roomCode,
+        roomMode,
         participants,
         isHost,
         myId,

@@ -3,13 +3,22 @@ import { WebRTCManager } from '../lib/webrtc';
 import { socket } from '../lib/socket';
 import { useRoom } from '../context/RoomContext';
 
-export function useWebRTC(localStream) {
+export function useWebRTC(localStream, enabled = true) {
   const { participants, myId } = useRoom();
   const [remoteStreams, setRemoteStreams] = useState(new Map());
   const managerRef = useRef(null);
 
   // Initialize manager and socket event listeners once
   useEffect(() => {
+    if (!enabled) {
+      if (managerRef.current) {
+        managerRef.current.cleanup();
+        managerRef.current = null;
+      }
+      setRemoteStreams(new Map());
+      return;
+    }
+
     console.log(`[useWebRTC] MOUNTED for myId: ${myId}`);
     const currentId = socket.id || myId;
     if (!currentId) return;
@@ -58,21 +67,21 @@ export function useWebRTC(localStream) {
       managerRef.current?.cleanup();
       managerRef.current = null;
     };
-  }, [myId]);
+  }, [myId, enabled]);
 
   // Update local stream tracks when localStream changes or manager is recreated
   useEffect(() => {
-    if (managerRef.current && localStream) {
+    if (enabled && managerRef.current && localStream) {
       managerRef.current.updateLocalStream(localStream);
     }
-  }, [localStream, myId]);
+  }, [localStream, myId, enabled]);
 
   // Update participants list without tearing down existing calls
   useEffect(() => {
-    if (managerRef.current && participants && participants.length > 0) {
+    if (enabled && managerRef.current && participants && participants.length > 0) {
       managerRef.current.updateParticipants(participants);
     }
-  }, [participants, myId]);
+  }, [participants, myId, enabled]);
 
   return { remoteStreams };
 }

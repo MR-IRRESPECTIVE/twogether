@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from "react";
-import { socket } from "../lib/socket";
+import { socket, emitWithAck } from "../lib/socket";
+import { requestTransition } from "../lib/transitions";
 import { STAGES } from "@shared/constants.js";
 import { useRoom } from "./RoomContext";
 
@@ -8,6 +9,13 @@ const SessionContext = createContext();
 export function SessionProvider({ children }) {
   const { roomCode, rejoinedSession } = useRoom();
   const [sessionId, setSessionId] = useState(null);
+  const sessionIdRef = useRef(sessionId);
+  sessionIdRef.current = sessionId;
+
+  useEffect(() => {
+    sessionIdRef.current = sessionId;
+  }, [sessionId]);
+
   const [stage, setStage] = useState(STAGES.LOBBY);
   const [layoutId, setLayoutId] = useState(null);
   const [photos, setPhotos] = useState([]);
@@ -140,14 +148,21 @@ export function SessionProvider({ children }) {
     const onPhotoNew = (payload) => {
       console.log("[SESSION] photo:new received:", payload.photoId);
       setPhotos((prev) => {
-        const existing = prev.find(p => p.id === payload.photoId);
+        let filtered = prev;
+        if (payload.supersededPhotoId) {
+          filtered = filtered.filter(p => p.id !== payload.supersededPhotoId);
+        }
+        if (payload.slotIndex !== undefined) {
+          filtered = filtered.filter(p => !(p.metadata?.slotIndex === payload.slotIndex && p.id !== payload.photoId));
+        }
+        const existing = filtered.find(p => p.id === payload.photoId);
         if (existing) {
           if (!existing.url && payload.photoData) {
-            return prev.map(p => p.id === payload.photoId ? { ...p, url: payload.photoData } : p);
+            return filtered.map(p => p.id === payload.photoId ? { ...p, url: payload.photoData, metadata: payload.metadata || p.metadata } : p);
           }
-          return prev;
+          return filtered;
         }
-        return [...prev, {
+        return [...filtered, {
           id: payload.photoId,
           url: payload.photoData,
           metadata: payload.metadata
@@ -157,27 +172,17 @@ export function SessionProvider({ children }) {
 
     const onPhotoAll = (payload) => {
       if (payload && payload.photos) {
-        setPhotos((prev) => {
-          const map = new Map(prev.map(p => [p.id, p]));
+        setPhotos(() => {
+          const map = new Map();
           for (const p of payload.photos) {
             const photoId = p.metadata?.id || p.id;
             const photoUrl = p.data || p.url;
             if (!photoId || !photoUrl) continue;
-
-            const existing = map.get(photoId);
-            if (!existing) {
-              map.set(photoId, {
-                id: photoId,
-                url: photoUrl,
-                metadata: p.metadata
-              });
-            } else {
-              map.set(photoId, {
-                ...existing,
-                url: photoUrl || existing.url,
-                metadata: p.metadata || existing.metadata
-              });
-            }
+            map.set(photoId, {
+              id: photoId,
+              url: photoUrl,
+              metadata: p.metadata
+            });
           }
           return Array.from(map.values());
         });
@@ -222,8 +227,9 @@ export function SessionProvider({ children }) {
     };
   }, []);
 
-  const startSession = () => {
-    socket.emit("session:start", { roomCode });
+  const startSession = (targetRoomCode) => {
+    const code = targetRoomCode || roomCode;
+    return emitWithAck("session:start", { roomCode: code });
   };
 
   const setLayout = (id) => {
@@ -275,14 +281,23 @@ export function SessionProvider({ children }) {
       });
 
       socket.emit("photo:upload", { sessionId, photoData, metadata: meta }, (response) => {
-        if (response && response.error) {
-          console.error("[SESSION] Photo upload failed:", response.error);
-          settleUpload(photoId, { success: false, error: response.error });
+        if (response && (response.error || response.stale || response.success === false)) {
+          const errMsg = response.error || (response.stale ? 'Stale upload rejected' : 'Upload failed');
+          console.warn("[SESSION] Photo upload failed or rejected:", errMsg);
+          if (meta.slotIndex !== undefined) {
+            setPhotos(prev => prev.filter(p => p.id !== photoId));
+          }
+          settleUpload(photoId, { success: false, error: errMsg, stale: !!response.stale });
         } else {
+          if (response?.photoUrl) {
+            setPhotos(prev => prev.map(p => p.id === photoId ? { ...p, url: response.photoUrl } : p));
+          }
           settleUpload(photoId, {
             success: true,
             photoId: response?.photoId || photoId,
-            photoUrl: response?.photoUrl
+            photoUrl: response?.photoUrl,
+            revision: response?.revision,
+            slotIndex: response?.slotIndex
           });
         }
       });
@@ -305,15 +320,30 @@ export function SessionProvider({ children }) {
     });
   }, [sessionId]);
 
-  const endBooth = () => {
-    socket.emit("session:end-booth", { roomCode, sessionId });
-  };
+  const endBooth = useCallback(async () => {
+    return requestTransition(socket, "session:end-booth", { roomCode, sessionId }, { timeoutMs: 5000 });
+  }, [roomCode, sessionId]);
 
-  const confirmSelection = (photoIds) => {
-    setMySelections(photoIds);
-    setStage(STAGES.CUSTOMIZE);
-    socket.emit("selection:confirm", { roomCode, sessionId, photoIds });
-  };
+  const confirmSelection = useCallback(async (photoIds) => {
+    const targetSessionId = sessionId;
+    const res = await requestTransition(
+      socket,
+      "selection:confirm",
+      { roomCode, sessionId: targetSessionId, photoIds },
+      { timeoutMs: 5000 }
+    );
+
+    if (res.success) {
+      setMySelections(photoIds);
+      if (sessionIdRef.current === targetSessionId) {
+        setStage(STAGES.CUSTOMIZE);
+      }
+      return { success: true, stage: STAGES.CUSTOMIZE };
+    }
+
+    console.warn("[SESSION] confirmSelection failed:", res.error);
+    return res;
+  }, [roomCode, sessionId]);
 
   const finishCustomize = (dataUrl) => {
     setFinalStripDataUrl(dataUrl);

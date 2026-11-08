@@ -3,12 +3,13 @@ import { BrowserRouter as Router, Routes, Route, useParams, useNavigate } from '
 import { RoomProvider, useRoom } from './context/RoomContext';
 import { SessionProvider, useSession } from './context/SessionContext';
 import { MediaProvider } from './context/MediaContext';
-import { STAGES } from '@shared/constants.js';
+import { STAGES, ROOM_MODES } from '@shared/constants.js';
 
 import HomePage from './pages/HomePage';
 import LobbyPage from './pages/LobbyPage';
 import FormatSelectPage from './pages/FormatSelectPage';
 import BoothPage from './pages/BoothPage';
+import SoloBoothPage from './pages/SoloBoothPage';
 import SelectionPage from './pages/SelectionPage';
 import CustomizePage from './pages/CustomizePage';
 import RevealPage from './pages/RevealPage';
@@ -19,7 +20,7 @@ import { Modal } from './components/ui/Modal';
 const RoomPageWrapper = () => {
   const { stage } = useSession();
   const { roomCode } = useParams();
-  const { leaveRoom } = useRoom();
+  const { leaveRoom, roomMode } = useRoom();
   const navigate = useNavigate();
   const [exitModalOpen, setExitModalOpen] = useState(false);
 
@@ -34,7 +35,7 @@ const RoomPageWrapper = () => {
   } else if (stage === STAGES.FORMAT_SELECT) {
     content = <FormatSelectPage />;
   } else if (stage === STAGES.BOOTH) {
-    content = <BoothPage />;
+    content = roomMode === ROOM_MODES.SOLO ? <SoloBoothPage /> : <BoothPage />;
   } else if (stage === STAGES.SELECTION) {
     content = <SelectionPage />;
   } else if (stage === STAGES.CUSTOMIZE) {

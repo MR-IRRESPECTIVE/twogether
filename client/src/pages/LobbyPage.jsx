@@ -6,11 +6,12 @@ import { useMedia } from '../context/MediaContext';
 import { ParticipantCard } from '../components/lobby/ParticipantCard';
 import { RoomCodeDisplay } from '../components/lobby/RoomCodeDisplay';
 import { Button } from '../components/ui/Button';
+import { ROOM_MODES } from '@shared/constants.js';
 
 const LobbyPage = () => {
   const navigate = useNavigate();
   const { roomCode: urlRoomCode } = useParams();
-  const { roomCode, participants, isHost, myId, leaveRoom, connectionStatus } = useRoom();
+  const { roomCode, roomMode, participants, isHost, myId, leaveRoom, connectionStatus } = useRoom();
   const { startSession } = useSession();
   const { stream, error, isReady, retry } = useMedia();
 
@@ -43,7 +44,7 @@ const LobbyPage = () => {
   // Actually, local user hasn't sent their cameraReady status to server yet (Phase 3 WebRTC). 
   // We can just rely on the participants array if the server tracks it, but server doesn't track camera status in Phase 2.
   // Let's implement what was asked: "Enabled only when >=2 participants have cameraReady: true" (or for now, just >=2 people in the room to test, as cameraReady is Phase 3). I will just check if participants.length >= 2 since actual WebRTC stream signals aren't fully implemented in Phase 2's server yet. The prompt says "Enabled only when >=2 participants have cameraReady: true". I'll add a check that defaults to true or checks the property.
-  const isStartEnabled = participants.length >= 2;
+  const isStartEnabled = roomMode === ROOM_MODES.SOLO ? participants.length >= 1 : participants.length >= 2;
 
   const handleStart = async () => {
     if (!isStartEnabled) return;

@@ -1,15 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useRoom } from '../context/RoomContext';
+import { useSession } from '../context/SessionContext';
 import { Button } from '../components/ui/Button';
 import { Modal } from '../components/ui/Modal';
-import { PARTICIPANT_COLORS } from '@shared/constants.js';
+import { PARTICIPANT_COLORS, ROOM_MODES } from '@shared/constants.js';
 
 const HomePage = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { createRoom, joinRoom } = useRoom();
+  const { startSession } = useSession();
 
+  const [soloModalOpen, setSoloModalOpen] = useState(false);
   const [hostModalOpen, setHostModalOpen] = useState(false);
   const [joinModalOpen, setJoinModalOpen] = useState(false);
 
@@ -35,6 +38,26 @@ const HomePage = () => {
   const [roomCode, setRoomCode] = useState('');
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
+
+  const handleSoloSubmit = async (e) => {
+    e.preventDefault();
+    if (!name.trim()) return setError("Name is required");
+    if (loading) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const code = await createRoom(name.trim(), color, 1, ROOM_MODES.SOLO);
+      const sessionRes = await startSession(code);
+      if (sessionRes && sessionRes.error) {
+        throw new Error(sessionRes.error);
+      }
+      navigate(`/room/${code}`);
+    } catch (err) {
+      setError(err.message || 'Failed to start solo photobooth');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleHostSubmit = async (e) => {
     e.preventDefault();
@@ -153,7 +176,10 @@ const HomePage = () => {
           width: '100%',
           maxWidth: '380px'
         }}>
-          <Button fullWidth onClick={() => setHostModalOpen(true)}>
+          <Button fullWidth onClick={() => setSoloModalOpen(true)}>
+            SOLO PHOTOBOOTH
+          </Button>
+          <Button fullWidth variant="secondary" onClick={() => setHostModalOpen(true)}>
             HOST A ROOM
           </Button>
           <Button fullWidth variant="secondary" onClick={() => setJoinModalOpen(true)}>
@@ -161,6 +187,29 @@ const HomePage = () => {
           </Button>
         </div>
       </div>
+
+      {/* Solo Modal */}
+      <Modal isOpen={soloModalOpen} onClose={() => setSoloModalOpen(false)}>
+        <h2 style={{ marginBottom: '24px' }}>Solo Photobooth</h2>
+        {error && <p style={{ color: 'var(--coral)', marginBottom: '16px' }}>{error}</p>}
+        <form onSubmit={handleSoloSubmit}>
+          <div style={{ marginBottom: '16px' }}>
+            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 500 }}>Your Name</label>
+            <input
+              type="text"
+              value={name}
+              onChange={e => setName(e.target.value)}
+              placeholder="e.g. Alex"
+              style={{ width: '100%', padding: '12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--grey-200)' }}
+            />
+          </div>
+          <div style={{ marginBottom: '24px' }}>
+            <label style={{ display: 'block', marginBottom: '8px', fontWeight: 500 }}>Your Color</label>
+            <ColorPicker />
+          </div>
+          <Button type="submit" fullWidth isLoading={loading}>START PHOTOBOOTH</Button>
+        </form>
+      </Modal>
 
       {/* Host Modal */}
       <Modal isOpen={hostModalOpen} onClose={() => setHostModalOpen(false)}>

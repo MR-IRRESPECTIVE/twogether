@@ -1,4 +1,5 @@
 import { generateRoomCode } from './utils/roomCode.js';
+import { ROOM_MODES, MIN_PARTICIPANTS, MAX_PARTICIPANTS } from '../../shared/constants.js';
 
 
 export class RoomManager {
@@ -6,7 +7,23 @@ export class RoomManager {
     this.rooms = new Map();
   }
 
-  createRoom(socketId, name, color, expectedCount) {
+  createRoom(socketId, name, color, expectedCount, mode = ROOM_MODES.GROUP) {
+    const resolvedMode = mode || ROOM_MODES.GROUP;
+    if (resolvedMode !== ROOM_MODES.GROUP && resolvedMode !== ROOM_MODES.SOLO) {
+      throw new Error('Invalid room mode');
+    }
+
+    let finalExpectedCount;
+    if (resolvedMode === ROOM_MODES.SOLO) {
+      finalExpectedCount = 1;
+    } else {
+      const count = expectedCount !== undefined && expectedCount !== null ? Number(expectedCount) : MAX_PARTICIPANTS;
+      if (!Number.isInteger(count) || count < MIN_PARTICIPANTS || count > MAX_PARTICIPANTS) {
+        throw new Error(`Group room expectedCount must be an integer between ${MIN_PARTICIPANTS} and ${MAX_PARTICIPANTS}`);
+      }
+      finalExpectedCount = count;
+    }
+
     const existingCodes = this.getAllRoomCodes();
     const code = generateRoomCode(existingCodes);
     const now = Date.now();
@@ -29,7 +46,8 @@ export class RoomManager {
       code,
       hostId: socketId,
       participants,
-      expectedCount,
+      expectedCount: finalExpectedCount,
+      mode: resolvedMode,
       currentSessionId: null,
       createdAt: now,
       lastActivityAt: now
@@ -73,6 +91,10 @@ export class RoomManager {
     // If they tried to reconnect but the previousId isn't in the room anymore
     if (previousId) {
       throw new Error('Your previous session has expired. Please ask the host for a new room.');
+    }
+
+    if (room.mode === ROOM_MODES.SOLO) {
+      throw new Error('Solo rooms do not allow additional participants');
     }
     
     if (room.participants.size >= room.expectedCount) {
